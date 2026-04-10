@@ -105,7 +105,7 @@ function AppInner() {
       <main className="max-w-6xl mx-auto px-4 py-8">
         {activeTab === "Home"         && <HomePage setActiveTab={setActiveTab} setShowLogin={setShowLogin} user={user} />}
         {activeTab === "Calculator"   && <PriceCalculator />}
-        {activeTab === "Marketplace"  && <Listings user={user} setShowLogin={setShowLogin} />}
+        {activeTab === "Marketplace"  && <Listings setShowLogin={setShowLogin} />}
         {activeTab === "How It Works" && <HowItWorks />}
         {activeTab === "My Dashboard" && <FarmerDashboard />}
         {activeTab === "Admin"        && <AdminPanel />}
