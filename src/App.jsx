@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import AdminPanel from "./pages/AdminPanel";
 import FarmerDashboard from "./pages/FarmerDashboard";
+import BuyerDashboard from "./pages/BuyerDashboard";
 import PriceTicker from "./components/PriceTicker";
 import PriceCalculator from "./components/PriceCalculator";
 import KrishiAI from "./components/KrishiAI";
@@ -18,7 +19,7 @@ export default function App() {
 }
 
 function AppInner() {
-  const { user, profile, loading, isAdmin, isFarmer } = useAuth();
+  const { user, profile, loading, isAdmin, isFarmer, isBuyer } = useAuth();
   const [activeTab, setActiveTab] = useState("Home");
   const [showLogin, setShowLogin] = useState(false);
 
@@ -27,7 +28,8 @@ function AppInner() {
     "Calculator",
     "Marketplace",
     "How It Works",
-    ...(user && isFarmer  ? ["My Dashboard"] : []),
+    ...(user && isFarmer  ? ["Farmer Hub"] : []),
+    ...(user && isBuyer   ? ["Buyer Hub"] : []),
     ...(user && isAdmin   ? ["Admin"] : []),
   ];
 
@@ -107,8 +109,9 @@ function AppInner() {
         {activeTab === "Calculator"   && <PriceCalculator />}
         {activeTab === "Marketplace"  && <Listings setShowLogin={setShowLogin} />}
         {activeTab === "How It Works" && <HowItWorks />}
-        {activeTab === "My Dashboard" && <FarmerDashboard />}
-        {activeTab === "Admin"        && <AdminPanel />}
+        {activeTab === "Farmer Hub" && <FarmerDashboard />}
+        {activeTab === "Buyer Hub"  && <BuyerDashboard setActiveTab={setActiveTab} />}
+        {activeTab === "Admin"       && <AdminPanel />}
       </main>
 
       <KrishiAI />

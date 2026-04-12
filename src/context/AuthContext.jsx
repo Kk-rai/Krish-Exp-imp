@@ -42,8 +42,14 @@ export function AuthProvider({ children }) {
   const isBuyer   = profile?.role === "buyer";
   const isVerified = profile?.verified === true;
 
+  async function reloadProfile() {
+    const { data: { session } } = await supabase.auth.getSession();
+    const uid = session?.user?.id;
+    if (uid) await loadProfile(uid);
+  }
+
   return (
-    <AuthCtx.Provider value={{ user, profile, loading, isAdmin, isFarmer, isBuyer, isVerified, reloadProfile: () => user && loadProfile(user.id) }}>
+    <AuthCtx.Provider value={{ user, profile, loading, isAdmin, isFarmer, isBuyer, isVerified, reloadProfile }}>
       {children}
     </AuthCtx.Provider>
   );

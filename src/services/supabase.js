@@ -107,6 +107,16 @@ export async function createEnquiry(enquiry) {
   return data;
 }
 
+export async function getEnquiriesForBuyer(buyerId) {
+  const { data, error } = await supabase
+    .from("enquiries")
+    .select("*, listings(commodity, quantity_kg, farmer_name, state, district)")
+    .eq("buyer_id", buyerId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
 export async function getEnquiriesForFarmer(farmerId) {
   // Step 1: get this farmer's listing IDs
   const { data: myListings, error: listErr } = await supabase

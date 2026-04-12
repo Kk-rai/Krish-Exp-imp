@@ -68,7 +68,19 @@ export default function PriceTicker() {
       </div>
       {lastUpdated && (
         <div className="text-right text-green-500 text-xs px-4 pb-1">
-          Updated {lastUpdated.toLocaleTimeString("en-IN")} {prices[0]?.isMock ? "· (mock data)" : "· Live"}
+          Updated {lastUpdated.toLocaleTimeString("en-IN")}
+          {" · "}
+          {prices.length === 0
+            ? "Mandi: —"
+            : prices.some(p => p.isMock)
+              ? "Mandi: sample / API fallback"
+              : "Mandi: live (data.gov.in)"}
+          {fx && (
+            <>
+              {" · "}
+              FX: {fx.source === "fixer" ? "Fixer.io" : fx.source === "open-er-api" ? "open.er-api" : "estimate"}
+            </>
+          )}
         </div>
       )}
     </div>

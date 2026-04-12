@@ -53,7 +53,16 @@ export default function LoginPage({ onDone }) {
     setLoading(true); setError(null);
     const { data: { user } } = await supabase.auth.getUser();
     try {
-      await upsertProfile({ id: user.id, email, name, phone, state, role, verified: false, created_at: new Date().toISOString() });
+      await upsertProfile({
+        id: user.id,
+        email,
+        name,
+        phone,
+        state: role === "farmer" ? state : null,
+        role,
+        verified: false,
+        created_at: new Date().toISOString(),
+      });
       await reloadProfile();
       onDone?.();
     } catch (err) {
@@ -65,7 +74,7 @@ export default function LoginPage({ onDone }) {
 
   const resendOTP = async () => {
     if (countdown > 0) return;
-    await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true, data: { role } } });
     startCountdown();
   };
 
