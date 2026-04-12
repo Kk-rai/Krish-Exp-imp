@@ -7,7 +7,7 @@ const STATES = ["Madhya Pradesh","Maharashtra","Uttar Pradesh","Telangana","Kera
 const CROP_EMOJI = { Garlic:"🧄", Onion:"🧅", Potato:"🥔", Turmeric:"🌿", Ginger:"🫚", Chilli:"🌶️" };
 
 export default function Listings({ setShowLogin }) {
-  const { user, profile, isFarmer } = useAuth();
+  const { user, profile } = useAuth();
   const [listings, setListings]         = useState([]);
   const [loading, setLoading]           = useState(true);
   const [activeView, setActiveView]     = useState("browse");
@@ -16,20 +16,10 @@ export default function Listings({ setShowLogin }) {
   const [postForm, setPostForm]         = useState({ commodity:"Garlic", quantity_kg:"", price_inr_kg:"", state:"Madhya Pradesh", district:"", description:"" });
   const [postStatus, setPostStatus]     = useState(null);
   const [postError, setPostError]       = useState("");
-  const [browseNotice, setBrowseNotice] = useState("");
   const [enquiryForm, setEnquiryForm]   = useState({ buyer_name:"", buyer_email:"", buyer_company:"", quantity_kg:"", message:"" });
   const [enquiryStatus, setEnquiryStatus] = useState(null);
 
   useEffect(() => { fetchListings(); }, []);
-
-  useEffect(() => {
-    if (!enquiryModal || !user) return;
-    setEnquiryForm(f => ({
-      ...f,
-      buyer_name: profile?.name || f.buyer_name || user.email?.split("@")[0] || "",
-      buyer_email: profile?.email || user.email || f.buyer_email || "",
-    }));
-  }, [enquiryModal, user, profile?.name, profile?.email]);
 
   const fetchListings = async () => {
     setLoading(true);
@@ -42,16 +32,12 @@ export default function Listings({ setShowLogin }) {
     e.preventDefault();
     setPostError("");
     if (!user) { setShowLogin(true); return; }
-    if (!isFarmer) {
-      setPostError("Only farmer accounts can post produce. Sign in as a farmer or use Farmer Hub.");
-      setPostStatus("error");
-      return;
-    }
     setPostStatus("loading");
     try {
       await createListing({
         farmer_id:    user.id,
         farmer_name:  profile?.name || user.email?.split("@")[0] || "Farmer",
+        farmer_phone: profile?.phone || "",
         commodity:    postForm.commodity,
         quantity_kg:  Number(postForm.quantity_kg),
         price_inr_kg: Number(postForm.price_inr_kg),
@@ -76,12 +62,7 @@ export default function Listings({ setShowLogin }) {
     e.preventDefault();
     setEnquiryStatus("loading");
     try {
-      await createEnquiry({
-        ...enquiryForm,
-        listing_id: enquiryModal.id,
-        quantity_kg: Number(enquiryForm.quantity_kg) || null,
-        buyer_id: user?.id ?? null,
-      });
+      await createEnquiry({ ...enquiryForm, listing_id: enquiryModal.id, quantity_kg: Number(enquiryForm.quantity_kg) });
       setEnquiryStatus("success");
       setTimeout(() => { setEnquiryModal(null); setEnquiryStatus(null); setEnquiryForm({ buyer_name:"", buyer_email:"", buyer_company:"", quantity_kg:"", message:"" }); }, 2000);
     } catch { setEnquiryStatus("error"); }
@@ -91,11 +72,6 @@ export default function Listings({ setShowLogin }) {
 
   return (
     <div>
-      {browseNotice && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {browseNotice}
-        </div>
-      )}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-green-900" style={{ fontFamily:"'DM Serif Display', serif" }}>🛒 Marketplace</h2>
@@ -104,11 +80,6 @@ export default function Listings({ setShowLogin }) {
         <button onClick={() => {
             if (activeView === "browse") {
               if (!user) { setShowLogin(true); return; }
-              if (!isFarmer) {
-                setBrowseNotice("Posting is for farmers only. Buyers can browse and send enquiries.");
-                setTimeout(() => setBrowseNotice(""), 6000);
-                return;
-              }
               setActiveView("post");
             } else { setActiveView("browse"); }
           }}

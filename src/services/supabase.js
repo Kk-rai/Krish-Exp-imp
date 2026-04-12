@@ -5,15 +5,15 @@ export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
+// ── Auth helpers ──────────────────────────────────────────────────────────────
 export const auth = {
   // Email OTP (magic link / OTP — no password needed)
   sendOTP: (email) =>
     supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } }),
 
-  // Phone OTP via Twilio (enabled in Supabase dashboard)
+  // Phone OTP via Twilio (enable in Supabase → Auth → Providers → Phone)
   sendPhoneOTP: (phone) =>
-    supabase.auth.signInWithOtp({ phone }),
+    supabase.auth.signInWithOtp({ phone, options: { shouldCreateUser: true } }),
 
   verifyEmailOTP: (email, token) =>
     supabase.auth.verifyOtp({ email, token, type: "email" }),
@@ -22,11 +22,8 @@ export const auth = {
     supabase.auth.verifyOtp({ phone, token, type: "sms" }),
 
   signOut: () => supabase.auth.signOut(),
-
   getSession: () => supabase.auth.getSession(),
-
   getUser: () => supabase.auth.getUser(),
-
   onAuthChange: (cb) => supabase.auth.onAuthStateChange(cb),
 };
 
@@ -107,28 +104,17 @@ export async function createEnquiry(enquiry) {
   return data;
 }
 
-export async function getEnquiriesForBuyer(buyerId) {
-  const { data, error } = await supabase
-    .from("enquiries")
-    .select("*, listings(commodity, quantity_kg, farmer_name, state, district)")
-    .eq("buyer_id", buyerId)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return data || [];
-}
-
+// FIX: correct query — first get farmer's listing IDs, then filter enquiries
 export async function getEnquiriesForFarmer(farmerId) {
-  // Step 1: get this farmer's listing IDs
   const { data: myListings, error: listErr } = await supabase
     .from("listings")
     .select("id")
     .eq("farmer_id", farmerId);
   if (listErr) throw listErr;
 
-  const ids = (myListings || []).map(l => l.id);
-  if (ids.length === 0) return [];
+  const ids = (myListings || []).map((l) => l.id);
+  if (!ids.length) return [];
 
-  // Step 2: fetch enquiries for those listing IDs
   const { data, error } = await supabase
     .from("enquiries")
     .select("*, listings(commodity, quantity_kg)")
@@ -201,7 +187,10 @@ export async function getAdminStats() {
     totalListings: listings.count || 0,
     totalEnquiries: enquiries.count || 0,
     totalUsers: profiles.count || 0,
-    pendingEnquiries: enquiries.data?.filter(e => e.status === "pending").length || 0,
-    unverifiedFarmers: profiles.data?.filter(p => p.role === "farmer" && !p.verified).length || 0,
+    pendingEnquiries:
+      enquiries.data?.filter((e) => e.status === "pending").length || 0,
+    unverifiedFarmers:
+      profiles.data?.filter((p) => p.role === "farmer" && !p.verified)
+        .length || 0,
   };
 }

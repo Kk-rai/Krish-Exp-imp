@@ -11,7 +11,7 @@ echo "🌾 KrishiConnect v2 — Preparing to push..."
 git add .
 
 # 3. Commit
-git commit -m "feat: v2 — auth/OTP login, admin panel, farmer dashboard, live APIs, email notifications
+git commit -m "feat: v3 — auth/OTP login, admin panel, farmer dashboard, live APIs, email notifications
 
 - Add Supabase Auth with email OTP (no password needed)
 - Farmer/buyer/admin role system
