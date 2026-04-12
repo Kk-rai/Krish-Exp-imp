@@ -1,12 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
-import { supabase, getMyListings, getEnquiriesForFarmer, createListing, updateListing } from "../services/supabase";
+import { supabase, getMyListings, getEnquiriesForFarmer, createListing, updateListing, deleteListing } from "../services/supabase";
 import PriceCalculator from "../components/PriceCalculator";
 import KrishiAI from "../components/KrishiAI";
 
-const CROPS  = ["Garlic","Onion","Potato","Turmeric","Ginger","Chilli","Wheat","Rice","Cumin","Coriander"];
+const CROPS  = ["Garlic","Onion","Potato","Turmeric","Ginger","Chilli"];
 const STATES = ["Madhya Pradesh","Maharashtra","Uttar Pradesh","Telangana","Kerala","Andhra Pradesh","Gujarat","Punjab","Rajasthan","Karnataka","Bihar","West Bengal","Tamil Nadu","Odisha","Haryana"];
-const CROP_EMOJI = { Garlic:"🧄", Onion:"🧅", Potato:"🥔", Turmeric:"🌿", Ginger:"🫚", Chilli:"🌶️", Wheat:"🌾", Rice:"🍚", Cumin:"🫙", Coriander:"🌱" };
+const CROP_EMOJI = { Garlic:"🧄", Onion:"🧅", Potato:"🥔", Turmeric:"🌿", Ginger:"🫚", Chilli:"🌶️" };
 
 const SIDENAV = [
   { id:"dashboard",  icon:"📊", label:"Dashboard" },
@@ -14,158 +14,126 @@ const SIDENAV = [
   { id:"enquiries",  icon:"📬", label:"Enquiries" },
   { id:"calculator", icon:"🧮", label:"Price Calculator" },
   { id:"profile",    icon:"👤", label:"My Profile" },
-  { id:"help",       icon:"❓", label:"Help & Docs" },
 ];
 
 export default function FarmerPanel() {
   const { user, profile, reloadProfile } = useAuth();
-  const [page, setPage]         = useState("dashboard");
-  const [listings, setListings] = useState([]);
+  const [page, setPage]           = useState("dashboard");
+  const [listings, setListings]   = useState([]);
   const [enquiries, setEnquiries] = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [loading, setLoading]     = useState(true);
   const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
 
-  useEffect(() => { if (user) load(); }, [user]);
-
-  const load = async () => {
+  const load = useCallback(async () => {
+    if (!user) return;
     setLoading(true);
     try {
-      const [l, e] = await Promise.all([
-        getMyListings(user.id),
-        getEnquiriesForFarmer(user.id),
-      ]);
-      setListings(l || []); setEnquiries(e || []);
-    } catch(err) { console.error(err); }
+      const [l, e] = await Promise.all([getMyListings(user.id), getEnquiriesForFarmer(user.id)]);
+      setListings(l || []);
+      setEnquiries(e || []);
+    } catch (err) { console.error("Load error:", err); }
     finally { setLoading(false); }
-  };
+  }, [user]);
 
-  const pendingEnqCount = enquiries.filter(e => e.status === "pending").length;
+  useEffect(() => { load(); }, [load]);
 
-  const navTo = (id) => { setPage(id); setMobileOpen(false); };
-
-  const SidebarContent = () => (
-    <>
-      {/* Logo */}
-      <div className={`flex items-center gap-2.5 px-4 py-5 border-b border-white/10 ${collapsed?"justify-center":""}`}>
-        <div className="w-9 h-9 rounded-xl bg-green-500/20 flex items-center justify-center text-lg flex-shrink-0">🌾</div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <div className="font-bold text-white text-sm truncate" style={{ fontFamily:"'DM Serif Display',serif" }}>KrishiConnect</div>
-            <div className="text-green-400 text-xs">Farmer Portal</div>
-          </div>
-        )}
-        <button onClick={() => setCollapsed(v=>!v)} className="ml-auto text-white/30 hover:text-white/70 text-sm flex-shrink-0 hidden md:block">
-          {collapsed ? "▶" : "◀"}
-        </button>
-      </div>
-
-      {/* Profile pill */}
-      {!collapsed && (
-        <div className="mx-3 mt-4 p-3 rounded-xl" style={{ background:"rgba(255,255,255,.06)" }}>
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full bg-green-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-              {(profile?.name||"F")[0].toUpperCase()}
-            </div>
-            <div className="min-w-0">
-              <div className="text-white font-semibold text-sm truncate">{profile?.name||"Farmer"}</div>
-              <div className="text-green-400 text-xs truncate">{profile?.state||"India"}</div>
-            </div>
-          </div>
-          <div className="mt-2 flex items-center gap-1.5">
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${profile?.verified?"bg-green-400":"bg-yellow-400"}`}/>
-            <span className={`text-xs ${profile?.verified?"text-green-400":"text-yellow-400"}`}>
-              {profile?.verified ? "Verified Farmer" : "Awaiting Verification"}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Nav */}
-      <nav className="flex-1 px-2 py-4 space-y-0.5">
-        {SIDENAV.map(item => (
-          <button key={item.id} onClick={() => navTo(item.id)}
-            className={`nav-item w-full ${page===item.id?"active":""} ${collapsed?"justify-center px-0":""}`}
-            style={{ color: page===item.id?"#4ade80":"#94a3b8" }}
-            title={collapsed ? item.label : ""}>
-            <span className="text-lg flex-shrink-0">{item.icon}</span>
-            {!collapsed && <span className="truncate">{item.label}</span>}
-            {!collapsed && item.id==="enquiries" && pendingEnqCount > 0 && (
-              <span className="ml-auto text-xs px-1.5 py-0.5 rounded-full bg-green-500 text-white font-bold flex-shrink-0">
-                {pendingEnqCount}
-              </span>
-            )}
-          </button>
-        ))}
-      </nav>
-
-      {/* Bottom */}
-      <div className="p-3 border-t border-white/10 space-y-0.5">
-        <button onClick={() => supabase.auth.signOut()}
-          className={`nav-item w-full ${collapsed?"justify-center px-0":""}`} style={{ color:"#f87171" }}
-          title={collapsed ? "Sign Out" : ""}>
-          <span className="text-lg flex-shrink-0">🚪</span>
-          {!collapsed && <span>Sign Out</span>}
-        </button>
-      </div>
-    </>
-  );
+  const pendingEnquiries = enquiries.filter(e => e.status === "pending").length;
 
   return (
     <div className="flex min-h-screen" style={{ fontFamily:"'DM Sans',sans-serif" }}>
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 flex md:hidden">
-          <div className="w-64 flex flex-col" style={{ background:"linear-gradient(180deg,#0d2e17,#1a4a28)" }}>
-            <SidebarContent />
-          </div>
-          <div className="flex-1 bg-black/50" onClick={() => setMobileOpen(false)}/>
-        </div>
-      )}
 
-      {/* Desktop sidebar */}
-      <aside className={`hidden md:flex flex-col flex-shrink-0 transition-all duration-200 ${collapsed?"w-[68px]":"w-[240px]"}`}
-        style={{ background:"linear-gradient(180deg,#0d2e17,#1a4a28)", minHeight:"100vh", position:"sticky", top:0, height:"100vh", overflowY:"auto" }}>
-        <SidebarContent />
-      </aside>
+      {/* ── Sidebar ──────────────────────────────────────────────────────── */}
+      <aside className={`${collapsed?"w-[68px]":"w-[240px]"} flex-shrink-0 transition-all duration-200 flex flex-col`}
+        style={{ background:"linear-gradient(180deg,#0d2e17 0%,#1a4a28 100%)", minHeight:"100vh", position:"sticky", top:0, height:"100vh", overflowY:"auto" }}>
 
-      {/* Main */}
-      <main className="flex-1 overflow-auto" style={{ background:"#f0f2f5", minWidth:0 }}>
-        {/* Topbar */}
-        <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-3.5 flex items-center justify-between sticky top-0 z-20">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setMobileOpen(true)} className="md:hidden text-gray-500 text-xl">☰</button>
+        <div className="flex items-center gap-2.5 px-4 py-5 border-b border-white/10">
+          <div className="w-9 h-9 rounded-xl bg-green-500/20 flex items-center justify-center text-lg flex-shrink-0">🌾</div>
+          {!collapsed && (
             <div>
-              <h1 className="font-bold text-gray-800 text-base md:text-lg leading-tight">
-                {SIDENAV.find(n=>n.id===page)?.icon} {SIDENAV.find(n=>n.id===page)?.label}
-              </h1>
-              <p className="text-gray-400 text-xs hidden sm:block">Namaste, {profile?.name||"Farmer"} 👋</p>
+              <div className="font-bold text-white text-sm" style={{ fontFamily:"'DM Serif Display',serif" }}>KrishiConnect</div>
+              <div className="text-green-400 text-xs">Farmer Portal</div>
+            </div>
+          )}
+          <button onClick={() => setCollapsed(v=>!v)} className="ml-auto text-white/40 hover:text-white/80 text-lg flex-shrink-0">
+            {collapsed ? "→" : "←"}
+          </button>
+        </div>
+
+        {!collapsed && (
+          <div className="mx-3 mt-4 p-3 rounded-xl" style={{ background:"rgba(255,255,255,.06)" }}>
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-full bg-green-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                {(profile?.name||"F")[0].toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <div className="text-white font-semibold text-sm truncate">{profile?.name || user?.email?.split("@")[0] || "Farmer"}</div>
+                <div className="text-green-400 text-xs truncate">{profile?.state || "India"}</div>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${profile?.verified ? "bg-green-400" : "bg-yellow-400"}`}/>
+              <span className={`text-xs ${profile?.verified ? "text-green-400" : "text-yellow-400"}`}>
+                {profile?.verified ? "Verified Farmer ✓" : "Pending Verification"}
+              </span>
             </div>
           </div>
+        )}
+
+        <nav className="flex-1 px-2 py-4 space-y-0.5">
+          {SIDENAV.map(item => (
+            <button key={item.id} onClick={() => setPage(item.id)}
+              className={`nav-item w-full ${page===item.id?"active":""}`}
+              style={{ color: page===item.id?"#4ade80":"#94a3b8" }}>
+              <span className="text-lg flex-shrink-0">{item.icon}</span>
+              {!collapsed && <span>{item.label}</span>}
+              {!collapsed && item.id==="enquiries" && pendingEnquiries > 0 && (
+                <span className="ml-auto text-xs px-1.5 py-0.5 rounded-full bg-green-500 text-white font-bold">{pendingEnquiries}</span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        <div className="p-3 border-t border-white/10">
+          <button onClick={() => supabase.auth.signOut()}
+            className={`nav-item w-full ${collapsed?"justify-center":""}`} style={{ color:"#f87171" }}>
+            <span className="text-lg flex-shrink-0">🚪</span>
+            {!collapsed && <span>Sign Out</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Main ─────────────────────────────────────────────────────────── */}
+      <main className="flex-1 overflow-auto" style={{ background:"#f0f2f5" }}>
+        {/* Topbar */}
+        <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-20">
+          <div>
+            <h1 className="font-bold text-gray-800 text-lg">
+              {SIDENAV.find(n=>n.id===page)?.icon} {SIDENAV.find(n=>n.id===page)?.label}
+            </h1>
+            <p className="text-gray-400 text-xs mt-0.5">
+              KrishiConnect · {new Date().toLocaleDateString("en-IN",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}
+            </p>
+          </div>
           <div className="flex items-center gap-2">
-            {!profile?.verified && (
-              <div className="hidden sm:block text-xs px-3 py-1.5 rounded-full font-semibold" style={{ background:"#fff3e0", color:"#b07a00" }}>
-                ⏳ Pending verification
-              </div>
+            <button onClick={load} className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 font-medium">↻ Refresh</button>
+            {page !== "listings" && (
+              <button onClick={() => setPage("listings")} className="btn-primary text-xs px-4 py-2">+ Post Listing</button>
             )}
-            <button onClick={load} className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 font-medium">↻</button>
           </div>
         </div>
 
-        <div className="p-4 md:p-6">
-          {loading && page !== "calculator" && page !== "help" ? (
-            <div className="text-center py-20 text-gray-400">
-              <div className="text-4xl mb-3" style={{ animation:"spin 1.5s linear infinite", display:"inline-block" }}>🌾</div>
-              <p className="text-sm mt-2">Loading your data...</p>
+        <div className="p-6">
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <div style={{ width:32, height:32, border:"3px solid #e2e8f0", borderTopColor:"#2d7a3a", borderRadius:"50%", animation:"spin 0.8s linear infinite" }}/>
             </div>
           ) : (
             <>
-              {page === "dashboard"  && <FarmerDashboardHome listings={listings} enquiries={enquiries} profile={profile} setPage={setPage} />}
+              {page === "dashboard"  && <FarmerHome listings={listings} enquiries={enquiries} profile={profile} setPage={setPage} />}
               {page === "listings"   && <MyListings listings={listings} user={user} profile={profile} onRefresh={load} />}
-              {page === "enquiries"  && <MyEnquiries enquiries={enquiries} onRefresh={load} />}
+              {page === "enquiries"  && <EnquiriesPage enquiries={enquiries} />}
               {page === "calculator" && <PriceCalculator />}
               {page === "profile"    && <FarmerProfile profile={profile} user={user} reloadProfile={reloadProfile} />}
-              {page === "help"       && <FarmerHelp />}
             </>
           )}
         </div>
@@ -176,316 +144,401 @@ export default function FarmerPanel() {
   );
 }
 
-/* ── Dashboard Home ─────────────────────────────────────────────────────────── */
-function FarmerDashboardHome({ listings, enquiries, profile, setPage }) {
-  const activeListings   = listings.filter(l => l.is_available).length;
-  const pendingEnquiries = enquiries.filter(e => e.status === "pending").length;
-  const totalKg          = listings.reduce((s, l) => s + (l.quantity_kg || 0), 0);
-  const potentialRevenue = listings.reduce((s, l) => s + ((l.quantity_kg||0) * (l.price_inr_kg||0)), 0);
+// ── Dashboard Home ─────────────────────────────────────────────────────────────
+function FarmerHome({ listings, enquiries, profile, setPage }) {
+  const activeListings = listings.filter(l => l.is_available).length;
+  const pendingEnq     = enquiries.filter(e => e.status === "pending").length;
+  const totalRevenue   = listings.reduce((s,l) => s + (l.quantity_kg * (l.price_inr_kg||0)), 0);
 
   return (
-    <div className="anim-fade space-y-5">
+    <div className="space-y-6 anim-fade">
       {/* Verification banner */}
       {!profile?.verified && (
-        <div className="rounded-xl p-4 flex items-start gap-3" style={{ background:"#fffbf0", border:"1px solid #f0dfa0" }}>
+        <div className="rounded-xl p-4 flex items-start gap-3" style={{ background:"#fffbeb", border:"1px solid #f59e0b" }}>
           <span className="text-xl flex-shrink-0">⏳</span>
           <div>
-            <p className="font-semibold text-yellow-800 text-sm">Your account is pending verification</p>
-            <p className="text-yellow-700 text-xs mt-0.5">An admin will verify your farmer account within 24 hours. You can post listings now — they'll appear after verification.</p>
+            <p className="font-semibold text-amber-800 text-sm">Verification Pending</p>
+            <p className="text-amber-700 text-xs mt-0.5">Admin will verify your account within 24 hours. You can post listings now — they'll be live immediately.</p>
           </div>
         </div>
       )}
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+      {/* Profile incomplete warning */}
+      {!profile?.name && (
+        <div className="rounded-xl p-4 flex items-start gap-3" style={{ background:"#eff6ff", border:"1px solid #3b82f6" }}>
+          <span className="text-xl flex-shrink-0">👤</span>
+          <div className="flex-1">
+            <p className="font-semibold text-blue-800 text-sm">Complete your profile</p>
+            <p className="text-blue-700 text-xs mt-0.5">Add your name and phone so buyers can contact you when you post a listing.</p>
+          </div>
+          <button onClick={() => setPage("profile")} className="btn-primary text-xs px-3 py-1.5 flex-shrink-0">Update →</button>
+        </div>
+      )}
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label:"Active Listings",    value:activeListings,           icon:"🌾", color:"#2d7a3a", bg:"#e8f5ea", action:()=>setPage("listings") },
-          { label:"New Enquiries",      value:pendingEnquiries,         icon:"📬", color:"#b07a00", bg:"#fff3e0", action:()=>setPage("enquiries") },
-          { label:"Total Produce (kg)", value:totalKg.toLocaleString("en-IN"), icon:"📦", color:"#2563eb", bg:"#dbeafe", action:null },
-          { label:"Revenue Potential",  value:potentialRevenue>0?`₹${(potentialRevenue/100000).toFixed(1)}L`:"—", icon:"💰", color:"#7c3aed", bg:"#ede9fe", action:null },
+          { label:"Active Listings", value:activeListings, icon:"🌾", color:"#2d7a3a", action:() => setPage("listings") },
+          { label:"New Enquiries",   value:pendingEnq,     icon:"📬", color:"#2563eb", action:() => setPage("enquiries") },
+          { label:"Total Listings",  value:listings.length, icon:"📦", color:"#7c3aed", action:null },
+          { label:"Revenue Potential", value:totalRevenue > 0 ? `₹${(totalRevenue/100000).toFixed(1)}L` : "—", icon:"💰", color:"#d97706", action:null },
         ].map(s => (
-          <div key={s.label} className={`stat-card ${s.action?"cursor-pointer":""}`} onClick={s.action||undefined}>
-            <div className="flex items-start justify-between mb-3">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style={{ background:s.bg }}>{s.icon}</div>
-              {s.action && <span className="text-gray-300 text-xs">→</span>}
+          <div key={s.label} className={`stat-card ${s.action?"cursor-pointer hover:shadow-md":""} transition-all`} onClick={s.action||undefined}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-2xl">{s.icon}</span>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background:`${s.color}15` }}>
+                <div className="w-2 h-2 rounded-full" style={{ background:s.color }}/>
+              </div>
             </div>
-            <div className="text-xl md:text-2xl font-bold mb-0.5" style={{ color:s.color }}>{s.value}</div>
-            <div className="text-gray-500 text-xs">{s.label}</div>
+            <div className="font-bold text-2xl text-gray-800">{s.value}</div>
+            <div className="text-gray-400 text-xs mt-0.5">{s.label}</div>
           </div>
         ))}
       </div>
 
-      <div className="grid md:grid-cols-2 gap-5">
-        {/* Recent enquiries */}
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-gray-800">Recent Enquiries</h3>
-            <button onClick={() => setPage("enquiries")} className="text-xs text-green-600 font-semibold hover:underline">View all →</button>
+      {/* Quick action */}
+      <div className="card p-6" style={{ background:"linear-gradient(135deg,#0d2e17,#1a4a28)" }}>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
+          <div>
+            <h3 className="font-bold text-white text-lg">Ready to reach UK buyers?</h3>
+            <p className="text-green-300 text-sm mt-1">Post your produce in 2 minutes. 0% UK import duty via CETA.</p>
           </div>
-          {enquiries.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
-              <div className="text-3xl mb-2">📬</div>
-              <p className="text-sm">No enquiries yet.</p>
-              <p className="text-xs mt-1">UK buyers will contact you here once they find your listings.</p>
-            </div>
-          ) : enquiries.slice(0,5).map(e => (
-            <div key={e.id} className="flex items-start gap-3 py-3 border-b border-gray-50 last:border-0">
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-700 text-xs flex-shrink-0">
-                {(e.buyer_name||"B")[0].toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm text-gray-800 truncate">{e.buyer_name}</div>
-                <div className="text-xs text-gray-500">{e.listings?.commodity} · {e.quantity_kg?`${Number(e.quantity_kg).toLocaleString("en-IN")}kg`:""}</div>
-              </div>
-              <StatusBadge status={e.status} />
-            </div>
-          ))}
-        </div>
-
-        {/* My listings */}
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-gray-800">My Produce</h3>
-            <button onClick={() => setPage("listings")} className="text-xs text-green-600 font-semibold hover:underline">Manage →</button>
-          </div>
-          {listings.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
-              <div className="text-3xl mb-2">🌱</div>
-              <p className="text-sm">No listings yet.</p>
-              <button onClick={() => setPage("listings")} className="btn-primary text-xs mt-3 py-1.5 px-4">+ Post Produce</button>
-            </div>
-          ) : listings.slice(0,5).map(l => (
-            <div key={l.id} className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
-              <div className="text-2xl flex-shrink-0">{CROP_EMOJI[l.commodity]||"🌾"}</div>
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm text-gray-800">{l.commodity}</div>
-                <div className="text-xs text-gray-500">{Number(l.quantity_kg).toLocaleString("en-IN")}kg {l.price_inr_kg?`· ₹${l.price_inr_kg}/kg`:""}</div>
-              </div>
-              <span className={`badge text-xs ${l.is_available?"bg-green-100 text-green-700":"bg-gray-100 text-gray-500"}`}>
-                {l.is_available?"Active":"Sold"}
-              </span>
-            </div>
-          ))}
+          <button onClick={() => setPage("listings")} className="btn-primary flex-shrink-0" style={{ background:"linear-gradient(135deg,#f5a623,#e08c10)" }}>
+            + Post New Listing →
+          </button>
         </div>
       </div>
 
-      {/* CETA tip card */}
-      <div className="rounded-xl p-5 flex items-start gap-3" style={{ background:"linear-gradient(135deg,#e8f5ea,#f0faf2)", border:"1px solid #b8ddc0" }}>
-        <div className="text-2xl flex-shrink-0">💡</div>
-        <div>
-          <p className="font-semibold text-green-800 text-sm">CETA 2025 — Save 12-15% on every UK shipment</p>
-          <p className="text-green-700 text-xs mt-1 leading-relaxed">India-UK CETA eliminates import duty on 99% of agri products. Your UK buyers pay less tax, so they can offer you more. Use the <button onClick={()=>setPage("calculator")} className="underline font-semibold">Price Calculator</button> to see your exact ₹ payout.</p>
+      {/* Recent listings */}
+      {listings.length > 0 && (
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-gray-800">Recent Listings</h3>
+            <button onClick={() => setPage("listings")} className="text-xs text-green-700 font-semibold hover:underline">View All →</button>
+          </div>
+          <div className="space-y-3">
+            {listings.slice(0,3).map(l => (
+              <div key={l.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background:"#f8fafc" }}>
+                <span className="text-2xl">{CROP_EMOJI[l.commodity]||"🌿"}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-gray-800 text-sm">{l.commodity} — {l.quantity_kg?.toLocaleString("en-IN")} kg</div>
+                  <div className="text-gray-400 text-xs">{l.district}, {l.state}</div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="font-bold text-green-700 text-sm">{l.price_inr_kg ? `₹${l.price_inr_kg}/kg` : "Best Offer"}</div>
+                  <span className={`badge text-xs ${l.is_available?"bg-green-50 text-green-700":"bg-gray-100 text-gray-500"}`}>
+                    {l.is_available ? "Live" : "Sold"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-/* ── My Listings ────────────────────────────────────────────────────────────── */
+// ── My Listings + Post Form ────────────────────────────────────────────────────
 function MyListings({ listings, user, profile, onRefresh }) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving]     = useState(false);
   const [toast, setToast]       = useState(null);
-  const [form, setForm] = useState({
-    commodity:"Garlic", quantity_kg:"", price_inr_kg:"",
-    state:profile?.state||"Madhya Pradesh", district:"", description:"",
-  });
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-  const showT = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
+  // Form defaults — always pull real profile data
+  const defaultForm = () => ({
+    commodity:"Garlic",
+    quantity_kg:"",
+    price_inr_kg:"",
+    state: profile?.state || "Madhya Pradesh",
+    district:"",
+    description:"",
+    grade:"",
+  });
+  const [form, setForm] = useState(defaultForm);
+
+  // Re-sync state dropdown if profile loads after component mounts
+  useEffect(() => {
+    setForm(f => ({ ...f, state: profile?.state || f.state }));
+  }, [profile?.state]);
+
+  const showT = (msg, type="success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 5000);
+  };
+
+  const openForm = () => {
+    setForm(defaultForm());
+    setShowForm(true);
+  };
 
   const handlePost = async (e) => {
-    e.preventDefault(); setSaving(true);
+    e.preventDefault();
+    if (!form.quantity_kg || Number(form.quantity_kg) <= 0) {
+      showT("❌ Please enter a valid quantity.", "error"); return;
+    }
+    if (!user?.id) {
+      showT("❌ Not logged in. Please refresh and try again.", "error"); return;
+    }
+    if (!profile?.name) {
+      showT("❌ Please complete your profile (add your name) before posting.", "error"); return;
+    }
+
+    setSaving(true);
     try {
       await createListing({
-        ...form, farmer_id:user.id, farmer_name:profile?.name||"",
-        quantity_kg:Number(form.quantity_kg),
-        price_inr_kg:Number(form.price_inr_kg)||null,
-        is_available:true, is_ceta_eligible:true,
+        farmer_id:    user.id,
+        // FIXED: always use real profile data, never hardcoded test data
+        farmer_name:  profile.name,
+        farmer_phone: profile.phone || null,
+        commodity:    form.commodity,
+        quantity_kg:  Number(form.quantity_kg),
+        price_inr_kg: form.price_inr_kg ? Number(form.price_inr_kg) : null,
+        state:        form.state,
+        district:     form.district.trim() || null,
+        description:  form.description.trim() || null,
+        grade:        form.grade.trim() || null,
+        is_available: true,
+        is_ceta_eligible: true,
       });
       showT("✅ Listing posted! UK buyers can now see your produce.");
       setShowForm(false);
-      setForm({ commodity:"Garlic", quantity_kg:"", price_inr_kg:"", state:profile?.state||"Madhya Pradesh", district:"", description:"" });
       onRefresh();
-    } catch(err) { showT("❌ Failed to post. Please try again.", "error"); console.error(err); }
-    finally { setSaving(false); }
+    } catch (err) {
+      console.error("Post listing error:", err);
+      // Show the actual Supabase error message so it's debuggable
+      showT(`❌ Failed to post: ${err?.message || "Unknown error. Check console for details."}`, "error");
+    } finally { setSaving(false); }
   };
 
-  const toggleAvailability = async (l) => {
-    await updateListing(l.id, { is_available: !l.is_available });
-    showT(`Listing marked as ${!l.is_available?"Active":"Sold"}`);
-    onRefresh();
+  const toggleAvailable = async (l) => {
+    try {
+      await updateListing(l.id, { is_available: !l.is_available });
+      showT(l.is_available ? "Listing marked as Sold" : "✅ Listing is Live again!");
+      onRefresh();
+    } catch (err) { showT(`❌ Could not update: ${err?.message}`, "error"); }
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await deleteListing(id);
+      setDeleteConfirm(null);
+      showT("Listing deleted.");
+      onRefresh();
+    } catch (err) { showT(`❌ Could not delete: ${err?.message}`, "error"); }
   };
 
   return (
-    <div className="anim-fade">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <p className="text-gray-500 text-sm">{listings.length} listing{listings.length!==1?"s":""} · {listings.filter(l=>l.is_available).length} active</p>
-        <button onClick={() => setShowForm(v=>!v)} className="btn-primary">
-          {showForm ? "✕ Cancel" : "+ Post New Listing"}
-        </button>
-      </div>
-
+    <div className="space-y-5 anim-fade">
       {toast && (
-        <div className={`mb-4 p-3 rounded-xl text-sm font-medium anim-fade ${toast.type==="error"?"bg-red-50 border border-red-200 text-red-700":"bg-green-50 border border-green-200 text-green-700"}`}>
+        <div className={`p-3 rounded-xl text-sm font-medium anim-fade ${toast.type==="error"?"bg-red-50 border border-red-200 text-red-700":"bg-green-50 border border-green-200 text-green-700"}`}>
           {toast.msg}
         </div>
       )}
 
-      {/* Post form */}
-      {showForm && (
-        <div className="card p-5 mb-5 anim-fade">
-          <h3 className="font-bold text-gray-800 mb-4">Post Your Produce</h3>
-          <form onSubmit={handlePost} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Commodity *</label>
-              <select value={form.commodity} onChange={e=>setForm(f=>({...f,commodity:e.target.value}))} className="inp">
-                {CROPS.map(c=><option key={c}>{c}</option>)}
-              </select>
+      {/* Profile incomplete gate */}
+      {!profile?.name && (
+        <div className="p-4 rounded-xl" style={{ background:"#fffbeb", border:"1px solid #f59e0b" }}>
+          <p className="text-amber-800 text-sm font-semibold">⚠️ Complete your profile first</p>
+          <p className="text-amber-700 text-xs mt-1">Go to <strong>My Profile</strong> and add your name before posting a listing — buyers need to know who you are.</p>
+        </div>
+      )}
+
+      {/* Post button / form toggle */}
+      {!showForm ? (
+        <button onClick={openForm}
+          className="w-full p-4 rounded-xl border-2 border-dashed border-green-300 text-green-700 font-semibold text-sm hover:bg-green-50 transition-all flex items-center justify-center gap-2">
+          <span className="text-xl">+</span> Post New Produce Listing
+        </button>
+      ) : (
+        /* ── Post Form ─────────────────────────────────────────────────── */
+        <div className="card overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100" style={{ background:"linear-gradient(135deg,#0d2e17,#1a4a28)" }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-white text-base">Post Your Produce</h2>
+                <p className="text-green-300 text-xs mt-0.5">Reach UK buyers directly · 2% platform fee only</p>
+              </div>
+              <button onClick={() => setShowForm(false)} className="text-white/50 hover:text-white text-xl font-light">✕</button>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">State *</label>
-              <select value={form.state} onChange={e=>setForm(f=>({...f,state:e.target.value}))} className="inp">
-                {STATES.map(s=><option key={s}>{s}</option>)}
-              </select>
+          </div>
+
+          <form onSubmit={handlePost} className="p-6 space-y-5">
+
+            {/* Seller info preview — so farmer can see what buyers will see */}
+            <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background:"#f8fafc", border:"1px solid #e2e8f0" }}>
+              <div className="w-9 h-9 rounded-full bg-green-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                {(profile?.name||"F")[0].toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-gray-400">This listing will appear as:</p>
+                <p className="font-semibold text-gray-800 text-sm">{profile?.name || "—"}</p>
+                <p className="text-xs text-gray-400">{profile?.phone || "No phone added"} · {profile?.state}</p>
+              </div>
+              {!profile?.name && (
+                <p className="text-xs text-red-500 font-medium flex-shrink-0">⚠️ Add your name in Profile first</p>
+              )}
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Quantity (kg) *</label>
-              <input required type="number" min="1" value={form.quantity_kg}
-                onChange={e=>setForm(f=>({...f,quantity_kg:e.target.value}))} className="inp" placeholder="e.g. 5000"/>
+
+            {/* Row 1 — Commodity + State */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Commodity *</label>
+                <select className="inp" value={form.commodity} onChange={e => setForm(f=>({...f,commodity:e.target.value}))} required>
+                  {CROPS.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">State *</label>
+                <select className="inp" value={form.state} onChange={e => setForm(f=>({...f,state:e.target.value}))} required>
+                  {STATES.map(s => <option key={s}>{s}</option>)}
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Your asking price (₹/kg)</label>
-              <input type="number" min="0" value={form.price_inr_kg}
-                onChange={e=>setForm(f=>({...f,price_inr_kg:e.target.value}))} className="inp" placeholder="Leave blank = Negotiable"/>
+
+            {/* Row 2 — Quantity + Price */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Quantity (kg) *</label>
+                <div className="relative">
+                  <input className="inp pr-12" type="number" min="1" placeholder="e.g. 5000"
+                    value={form.quantity_kg} onChange={e => setForm(f=>({...f,quantity_kg:e.target.value}))} required />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">kg</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                  Your Price (₹/kg)
+                  <span className="text-gray-400 font-normal ml-1">(optional)</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
+                  <input className="inp pl-7" type="number" min="0" step="0.5" placeholder="Leave blank for best offer"
+                    value={form.price_inr_kg} onChange={e => setForm(f=>({...f,price_inr_kg:e.target.value}))} />
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">District / Mandi</label>
-              <input value={form.district} onChange={e=>setForm(f=>({...f,district:e.target.value}))} className="inp" placeholder="e.g. Mandsor"/>
+
+            {/* Row 3 — District + Grade */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                  District / Mandi
+                  <span className="text-gray-400 font-normal ml-1">(helps with logistics)</span>
+                </label>
+                <input className="inp" type="text" placeholder="e.g. Mandsor, Nashik, Wayanad"
+                  value={form.district} onChange={e => setForm(f=>({...f,district:e.target.value}))} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                  Grade / Quality
+                  <span className="text-gray-400 font-normal ml-1">(optional)</span>
+                </label>
+                <input className="inp" type="text" placeholder="e.g. Export Grade A, Premium"
+                  value={form.grade} onChange={e => setForm(f=>({...f,grade:e.target.value}))} />
+              </div>
             </div>
+
+            {/* Row 4 — Description */}
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Description / Quality details</label>
-              <input value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} className="inp" placeholder="Grade, variety, post-harvest treatment..."/>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                Description
+                <span className="text-gray-400 font-normal ml-1">(quality, variety, certifications)</span>
+              </label>
+              <textarea className="inp resize-none" rows={3}
+                placeholder="e.g. Export grade white garlic, 5–6cm bulb size, moisture below 12%, APEDA certified. Available from JNPT. Minimum order 1MT."
+                value={form.description} onChange={e => setForm(f=>({...f,description:e.target.value}))} />
             </div>
-            <div className="sm:col-span-2 flex gap-3">
-              <button type="submit" className="btn-primary" disabled={saving}>{saving?"Posting...":"Post Listing →"}</button>
-              <button type="button" className="btn-outline" onClick={()=>setShowForm(false)}>Cancel</button>
+
+            {/* CETA info box */}
+            <div className="flex items-start gap-3 p-3 rounded-xl" style={{ background:"#e8f5ea", border:"1px solid #b7dfbc" }}>
+              <span className="text-lg flex-shrink-0">✅</span>
+              <div>
+                <p className="text-green-800 text-xs font-semibold">CETA 2025 — 0% UK Import Duty</p>
+                <p className="text-green-700 text-xs mt-0.5">Your listing will show UK buyers the exact ₹ payout with zero duty savings highlighted.</p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-1">
+              <button type="submit" disabled={saving || !profile?.name} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                {saving ? (
+                  <><span style={{ width:16,height:16,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"white",borderRadius:"50%",animation:"spin .8s linear infinite",display:"inline-block" }}/> Posting...</>
+                ) : "Post Listing →"}
+              </button>
+              <button type="button" onClick={() => setShowForm(false)} className="btn-outline px-5">Cancel</button>
             </div>
           </form>
         </div>
       )}
 
-      {listings.length === 0 ? (
-        <div className="card text-center py-16 text-gray-400">
-          <div className="text-4xl mb-3">🌱</div>
-          <p className="font-semibold text-gray-600">No listings yet</p>
-          <p className="text-sm mt-1">Post your first produce to start getting enquiries from UK buyers.</p>
-          <button onClick={() => setShowForm(true)} className="btn-primary mt-4 mx-auto">+ Post Produce</button>
-        </div>
-      ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {listings.map(l => (
-            <div key={l.id} className="card card-hover overflow-hidden">
-              <div className="px-5 pt-4 pb-3" style={{ background:"linear-gradient(135deg,#f0faf2,#e8f5e9)" }}>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-3xl mb-1">{CROP_EMOJI[l.commodity]||"🌾"}</div>
-                    <div className="font-bold text-green-900">{l.commodity}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">{l.state}{l.district?`, ${l.district}`:""}</div>
-                  </div>
-                  <span className={`badge ${l.is_available?"bg-green-100 text-green-700":"bg-gray-100 text-gray-500"}`}>
-                    {l.is_available?"Active":"Sold"}
-                  </span>
-                </div>
-              </div>
-              <div className="px-5 py-4">
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <div>
-                    <span className="text-gray-400 text-xs block">Quantity</span>
-                    <span className="font-semibold text-gray-800">{Number(l.quantity_kg).toLocaleString("en-IN")} kg</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-gray-400 text-xs block">Price</span>
-                    <span className="font-semibold text-gray-800">{l.price_inr_kg?`₹${l.price_inr_kg}/kg`:"Negotiable"}</span>
-                  </div>
-                </div>
-                {l.description && <p className="text-xs text-gray-500 mb-3 line-clamp-2">{l.description}</p>}
-                <div className="text-xs text-gray-400 mb-3">
-                  Posted {new Date(l.created_at).toLocaleDateString("en-IN")}
-                </div>
-                <button onClick={() => toggleAvailability(l)}
-                  className="w-full text-xs py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium transition-colors">
-                  Mark as {l.is_available ? "Sold ✓" : "Available Again"}
-                </button>
-              </div>
+      {/* Delete confirm modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background:"rgba(0,0,0,.4)" }}
+          onClick={() => setDeleteConfirm(null)}>
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl anim-pop" onClick={e=>e.stopPropagation()}>
+            <h3 className="font-bold text-gray-800 mb-2">Delete this listing?</h3>
+            <p className="text-gray-500 text-sm mb-5">This cannot be undone. Any pending enquiries for this listing will remain in the system.</p>
+            <div className="flex gap-3">
+              <button onClick={() => handleDelete(deleteConfirm)} className="flex-1 py-2.5 rounded-xl font-bold text-white text-sm" style={{ background:"#dc2626" }}>
+                Yes, Delete
+              </button>
+              <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-2.5 rounded-xl font-bold text-gray-600 text-sm border border-gray-200">
+                Cancel
+              </button>
             </div>
-          ))}
+          </div>
         </div>
       )}
-    </div>
-  );
-}
 
-/* ── My Enquiries ───────────────────────────────────────────────────────────── */
-function MyEnquiries({ enquiries, onRefresh }) {
-  const [filter, setFilter] = useState("all");
-  const filtered = filter==="all" ? enquiries : enquiries.filter(e=>e.status===filter);
-
-  return (
-    <div className="anim-fade">
-      <div className="flex gap-2 mb-5 flex-wrap">
-        {[
-          ["all",       `All (${enquiries.length})`],
-          ["pending",   `New (${enquiries.filter(e=>e.status==="pending").length})`],
-          ["contacted", "Contacted"],
-          ["closed",    "Closed"],
-        ].map(([k,l]) => (
-          <button key={k} onClick={() => setFilter(k)}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-            style={{ background:filter===k?"#2d7a3a":"white", color:filter===k?"white":"#6b7280", border:"1px solid", borderColor:filter===k?"#2d7a3a":"#e5e7eb" }}>
-            {l}
-          </button>
-        ))}
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="card text-center py-16 text-gray-400">
-          <div className="text-4xl mb-3">📬</div>
-          <p className="font-semibold text-gray-600">No {filter!=="all"?filter:""} enquiries</p>
-          <p className="text-sm mt-1">UK buyers will reach out here when they find your listings.</p>
+      {/* Existing listings */}
+      {listings.length === 0 ? (
+        <div className="card p-12 text-center">
+          <div className="text-5xl mb-4">🌾</div>
+          <h3 className="font-bold text-gray-800 mb-2">No listings yet</h3>
+          <p className="text-gray-400 text-sm">Post your first produce listing to start receiving enquiries from UK buyers.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map(e => (
-            <div key={e.id} className="card p-5">
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-700 flex-shrink-0">
-                    {(e.buyer_name||"B")[0].toUpperCase()}
+          <p className="text-xs text-gray-400 font-medium">{listings.length} listing{listings.length!==1?"s":""} total</p>
+          {listings.map(l => (
+            <div key={l.id} className="card p-4 flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
+                style={{ background: l.is_available ? "#e8f5ea" : "#f1f5f9" }}>
+                {CROP_EMOJI[l.commodity]||"🌿"}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div>
+                    <h4 className="font-bold text-gray-800">{l.commodity}{l.grade ? ` · ${l.grade}` : ""}</h4>
+                    <p className="text-gray-500 text-xs mt-0.5">{l.district ? `${l.district}, ` : ""}{l.state}</p>
                   </div>
-                  <div className="min-w-0">
-                    <div className="font-semibold text-gray-800">{e.buyer_name}{e.buyer_company?` · ${e.buyer_company}`:""}</div>
-                    <div className="text-sm text-blue-600 mt-0.5">{e.buyer_email}</div>
-                    <div className="text-xs text-gray-500 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                      {e.listings?.commodity && <span>🌾 {e.listings.commodity}</span>}
-                      {e.quantity_kg && <span>📦 {Number(e.quantity_kg).toLocaleString("en-IN")}kg wanted</span>}
-                      <span>📅 {new Date(e.created_at).toLocaleDateString("en-IN")}</span>
-                    </div>
-                  </div>
+                  <span className={`badge flex-shrink-0 ${l.is_available?"bg-green-50 text-green-700":"bg-gray-100 text-gray-500"}`}>
+                    {l.is_available ? "🟢 Live" : "⚫ Sold"}
+                  </span>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <StatusBadge status={e.status} />
-                  <a href={`mailto:${e.buyer_email}?subject=Re: ${e.listings?.commodity||"Produce"} Enquiry — KrishiConnect&body=Dear ${e.buyer_name},%0A%0AThank you for your interest. I am happy to discuss your requirement for ${e.quantity_kg||""}kg of ${e.listings?.commodity||"produce"}.%0A%0ARegards,%0AKrishiConnect Farmer`}
-                    className="text-xs px-3 py-1.5 rounded-lg font-semibold text-white no-underline flex-shrink-0"
-                    style={{ background:"linear-gradient(135deg,#2d7a3a,#4a9c5a)" }}>
-                    Reply →
-                  </a>
+                <div className="flex items-center gap-4 mt-2 flex-wrap">
+                  <span className="text-sm font-semibold text-gray-700">📦 {Number(l.quantity_kg).toLocaleString("en-IN")} kg</span>
+                  {l.price_inr_kg && <span className="text-sm font-semibold text-green-700">₹{l.price_inr_kg}/kg</span>}
+                  {l.price_inr_kg && l.quantity_kg && (
+                    <span className="text-xs text-gray-400">Total: ₹{(l.price_inr_kg * l.quantity_kg).toLocaleString("en-IN")}</span>
+                  )}
+                  {!l.price_inr_kg && <span className="text-xs text-gray-400">Best Offer</span>}
+                </div>
+                {l.description && <p className="text-gray-400 text-xs mt-1 line-clamp-1">{l.description}</p>}
+                <div className="mt-3 flex gap-2">
+                  <button onClick={() => toggleAvailable(l)}
+                    className="text-xs px-3 py-1.5 rounded-lg border font-medium transition-all"
+                    style={{ borderColor: l.is_available?"#e2e8f0":"#16a34a", color: l.is_available?"#6b7280":"#16a34a" }}>
+                    {l.is_available ? "Mark as Sold" : "Mark as Available Again"}
+                  </button>
+                  <button onClick={() => setDeleteConfirm(l.id)}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-red-100 text-red-400 font-medium hover:bg-red-50 transition-all">
+                    🗑 Delete
+                  </button>
                 </div>
               </div>
-              {e.message && (
-                <div className="mt-3 p-3 rounded-xl text-sm text-gray-600 italic" style={{ background:"#f8fafc", border:"1px solid #e2e8f0" }}>
-                  "{e.message}"
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -494,45 +547,130 @@ function MyEnquiries({ enquiries, onRefresh }) {
   );
 }
 
-/* ── Farmer Profile ──────────────────────────────────────────────────────────── */
+// ── Enquiries ─────────────────────────────────────────────────────────────────
+function EnquiriesPage({ enquiries }) {
+  if (enquiries.length === 0) return (
+    <div className="card p-12 text-center anim-fade">
+      <div className="text-5xl mb-4">📬</div>
+      <h3 className="font-bold text-gray-800 mb-2">No enquiries yet</h3>
+      <p className="text-gray-400 text-sm">Once UK buyers contact you, their enquiries will appear here.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4 anim-fade">
+      <p className="text-xs text-gray-400 font-medium">{enquiries.length} enquir{enquiries.length!==1?"ies":"y"}</p>
+      {enquiries.map(e => (
+        <div key={e.id} className="card p-5">
+          <div className="flex items-start gap-3 justify-between flex-wrap">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold flex-shrink-0">
+                {(e.buyer_name||"B")[0].toUpperCase()}
+              </div>
+              <div>
+                <p className="font-semibold text-gray-800 text-sm">{e.buyer_name}</p>
+                <p className="text-gray-400 text-xs">{e.buyer_company || "UK Buyer"}</p>
+              </div>
+            </div>
+            <span className={`badge ${e.status==="pending"?"bg-amber-50 text-amber-700":e.status==="contacted"?"bg-blue-50 text-blue-700":"bg-gray-100 text-gray-500"}`}>
+              {e.status}
+            </span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="p-2.5 rounded-lg bg-gray-50">
+              <p className="text-xs text-gray-400">Crop</p>
+              <p className="text-sm font-semibold text-gray-700 mt-0.5">{e.listings?.commodity || "—"}</p>
+            </div>
+            <div className="p-2.5 rounded-lg bg-gray-50">
+              <p className="text-xs text-gray-400">Qty Needed</p>
+              <p className="text-sm font-semibold text-gray-700 mt-0.5">{e.quantity_kg ? `${Number(e.quantity_kg).toLocaleString("en-IN")} kg` : "Flexible"}</p>
+            </div>
+            <div className="p-2.5 rounded-lg bg-gray-50">
+              <p className="text-xs text-gray-400">Date</p>
+              <p className="text-sm font-semibold text-gray-700 mt-0.5">{new Date(e.created_at).toLocaleDateString("en-IN")}</p>
+            </div>
+          </div>
+          {e.message && (
+            <div className="mt-3 p-3 rounded-xl" style={{ background:"#f8fafc", border:"1px solid #e2e8f0" }}>
+              <p className="text-xs text-gray-500 italic">"{e.message}"</p>
+            </div>
+          )}
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <a href={`mailto:${e.buyer_email}?subject=Re: KrishiConnect Enquiry — ${e.listings?.commodity||"Produce"}`}
+              className="btn-primary text-xs px-4 py-2 no-underline inline-flex items-center gap-1">
+              📧 Reply via Email
+            </a>
+            <span className="text-xs text-gray-400">{e.buyer_email}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Profile ───────────────────────────────────────────────────────────────────
 function FarmerProfile({ profile, user, reloadProfile }) {
-  const [form, setForm]     = useState({ name:profile?.name||"", phone:profile?.phone||"", state:profile?.state||"Madhya Pradesh" });
+  const [form, setForm]   = useState({
+    name:  profile?.name  || "",
+    phone: profile?.phone || "",
+    state: profile?.state || "Madhya Pradesh",
+  });
   const [saving, setSaving] = useState(false);
   const [toast, setToast]   = useState(null);
 
+  // Sync if profile loads late
+  useEffect(() => {
+    setForm({
+      name:  profile?.name  || "",
+      phone: profile?.phone || "",
+      state: profile?.state || "Madhya Pradesh",
+    });
+  }, [profile]);
+
   const handleSave = async (e) => {
-    e.preventDefault(); setSaving(true);
+    e.preventDefault();
+    if (!form.name.trim()) { setToast({ msg:"❌ Name is required.", type:"error" }); return; }
+    setSaving(true);
     try {
-      const { error } = await supabase.from("profiles").update(form).eq("id", user.id);
-      if (error) throw error;
+      const { error } = await supabase.from("profiles").update({
+        name:  form.name.trim(),
+        phone: form.phone.trim() || null,
+        state: form.state,
+      }).eq("id", user.id);
+      if (error) throw new Error(error.message);
       await reloadProfile();
-      setToast({ msg:"✅ Profile updated successfully!", type:"success" });
-      setTimeout(() => setToast(null), 3000);
-    } catch(err) {
+      setToast({ msg:"✅ Profile updated! Your name and phone will appear on new listings.", type:"success" });
+    } catch (err) {
       setToast({ msg:`❌ ${err.message}`, type:"error" });
-      console.error(err);
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+      setTimeout(() => setToast(null), 4000);
+    }
   };
 
   return (
-    <div className="anim-fade max-w-lg">
+    <div className="max-w-lg anim-fade">
       <div className="card p-6">
         {/* Avatar */}
-        <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-100">
-          <div className="w-16 h-16 rounded-2xl bg-green-500 flex items-center justify-center text-white text-2xl font-bold flex-shrink-0">
+        <div className="flex items-center gap-4 mb-6 pb-5 border-b border-gray-100">
+          <div className="w-16 h-16 rounded-2xl bg-green-500 flex items-center justify-center text-white font-bold text-2xl flex-shrink-0">
             {(profile?.name||"F")[0].toUpperCase()}
           </div>
           <div>
-            <div className="font-bold text-gray-800 text-lg">{profile?.name||"Farmer"}</div>
-            <div className="text-gray-500 text-sm mt-0.5">{user?.email || profile?.phone || "—"}</div>
-            <div className="mt-2">
-              {profile?.verified
-                ? <span className="badge bg-green-100 text-green-700">✓ Verified Farmer</span>
-                : <span className="badge bg-yellow-100 text-yellow-700">⏳ Awaiting Verification</span>
-              }
-            </div>
+            <h2 className="font-bold text-gray-800 text-lg">{profile?.name || "Complete your profile"}</h2>
+            <p className="text-gray-400 text-sm">{user?.email || profile?.phone || "—"}</p>
+            <span className={`badge text-xs mt-1 ${profile?.verified?"bg-green-50 text-green-700":"bg-amber-50 text-amber-700"}`}>
+              {profile?.verified ? "✓ Verified Farmer" : "⏳ Pending Verification"}
+            </span>
           </div>
         </div>
+
+        {!profile?.name && (
+          <div className="mb-4 p-3 rounded-xl text-xs" style={{ background:"#eff6ff", border:"1px solid #bfdbfe" }}>
+            <strong className="text-blue-800">👋 First time?</strong>
+            <span className="text-blue-700"> Fill in your name and phone — this is what UK buyers see when you post a listing.</span>
+          </div>
+        )}
 
         {toast && (
           <div className={`mb-4 p-3 rounded-xl text-sm font-medium ${toast.type==="error"?"bg-red-50 border border-red-200 text-red-700":"bg-green-50 border border-green-200 text-green-700"}`}>
@@ -542,74 +680,35 @@ function FarmerProfile({ profile, user, reloadProfile }) {
 
         <form onSubmit={handleSave} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Full Name *</label>
-            <input required value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} className="inp" placeholder="Your full name"/>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Full Name *</label>
+            <input className="inp" type="text" placeholder="e.g. Ramesh Patel" required
+              value={form.name} onChange={e => setForm(f=>({...f,name:e.target.value}))} />
+            <p className="text-xs text-gray-400 mt-1">This appears on your listings so buyers know who to contact.</p>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Mobile Number</label>
-            <input value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} className="inp" placeholder="+91 98765 43210"/>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Phone Number</label>
+            <input className="inp" type="tel" placeholder="+91 98260 12345"
+              value={form.phone} onChange={e => setForm(f=>({...f,phone:e.target.value}))} />
+            <p className="text-xs text-gray-400 mt-1">UK buyers can use WhatsApp or call this number directly.</p>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">State</label>
-            <select value={form.state} onChange={e=>setForm(f=>({...f,state:e.target.value}))} className="inp bg-white">
-              {STATES.map(s=><option key={s}>{s}</option>)}
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">State</label>
+            <select className="inp" value={form.state} onChange={e => setForm(f=>({...f,state:e.target.value}))}>
+              {STATES.map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
-          <button type="submit" className="btn-primary w-full" disabled={saving}>
+          <button type="submit" disabled={saving} className="btn-primary w-full">
             {saving ? "Saving..." : "Save Profile"}
           </button>
         </form>
 
-        {/* Readonly info */}
+        {/* Email shown read-only */}
         <div className="mt-5 pt-5 border-t border-gray-100">
-          <p className="text-xs font-semibold text-gray-500 mb-2">Account Info</p>
-          <div className="space-y-1.5 text-xs text-gray-500">
-            <div className="flex justify-between"><span>Role</span><span className="font-medium capitalize text-gray-700">Farmer</span></div>
-            <div className="flex justify-between"><span>Joined</span><span className="font-medium text-gray-700">{profile?.created_at?new Date(profile.created_at).toLocaleDateString("en-IN"):"—"}</span></div>
-            <div className="flex justify-between"><span>Verification</span><span className={`font-medium ${profile?.verified?"text-green-600":"text-yellow-600"}`}>{profile?.verified?"Verified":"Pending"}</span></div>
-          </div>
+          <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Account Email</p>
+          <p className="text-sm text-gray-600">{user?.email}</p>
+          <p className="text-xs text-gray-400 mt-1">Email is linked to your OTP login and cannot be changed here.</p>
         </div>
       </div>
     </div>
   );
-}
-
-/* ── Help & Docs ─────────────────────────────────────────────────────────────── */
-function FarmerHelp() {
-  const docs = [
-    { title:"Export Documents Checklist", items:["Phytosanitary Certificate — State Agriculture Dept","Certificate of Origin (CETA) — Chamber of Commerce","Commercial Invoice — Your details + buyer details","Packing List — Carton-by-carton breakdown","Bill of Lading — From your shipping line","Fumigation Certificate — For certain commodities"] },
-    { title:"CETA 2025 — What it means for you", items:["0% UK import duty on 99% of Indian agri products","UK buyers now pay 12-15% less tax on your goods","This saving can be passed to you as a better price","CETA Certificate of Origin must be from Chamber of Commerce","No expiry — permanent under the 2025 agreement"] },
-    { title:"Shipping Process", items:["Step 1: Find UK buyer via KrishiConnect Marketplace","Step 2: Agree on price using the Price Calculator","Step 3: Contact a freight forwarder (JNPT / Mundra / Chennai)","Step 4: Prepare all 5 export documents","Step 5: Load goods, get Bill of Lading","Step 6: Buyer receives goods, you get payment"] },
-  ];
-
-  return (
-    <div className="anim-fade max-w-2xl space-y-5">
-      <div className="card p-5 flex items-start gap-3" style={{ background:"linear-gradient(135deg,#e8f5ea,#f0faf2)", border:"1px solid #b8ddc0" }}>
-        <div className="text-2xl">💬</div>
-        <div>
-          <p className="font-semibold text-green-800 text-sm">Ask KrishiAI for instant help</p>
-          <p className="text-green-700 text-xs mt-0.5">Click the 🌾 button at the bottom-right to ask anything in Hindi or English — documents, pricing, shipping, CETA rules.</p>
-        </div>
-      </div>
-      {docs.map(d => (
-        <div key={d.title} className="card p-5">
-          <h3 className="font-bold text-gray-800 mb-3">📋 {d.title}</h3>
-          <ul className="space-y-2">
-            {d.items.map((item, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
-                <span className="text-green-500 font-bold mt-0.5 flex-shrink-0">✓</span>
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function StatusBadge({ status }) {
-  const m = { pending:["#fff3e0","#b07a00","⏳"], contacted:["#e0f2fe","#0369a1","📞"], closed:["#f0fdf4","#166534","✅"] };
-  const [bg,color,icon] = m[status]||m.pending;
-  return <span className="badge" style={{ background:bg, color }}>{icon} {status}</span>;
 }

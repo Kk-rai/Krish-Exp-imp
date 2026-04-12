@@ -16,7 +16,7 @@ export function AuthProvider({ children }) {
       else setLoading(false);
     });
 
-    // Listen for auth changes
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) loadProfile(session.user.id);
@@ -29,7 +29,7 @@ export function AuthProvider({ children }) {
   async function loadProfile(userId) {
     try {
       const p = await getProfile(userId);
-      setProfile(p);
+      setProfile(p || null);
     } catch {
       setProfile(null);
     } finally {
@@ -37,13 +37,22 @@ export function AuthProvider({ children }) {
     }
   }
 
-  const isAdmin   = profile?.role === "admin";
-  const isFarmer  = profile?.role === "farmer";
-  const isBuyer   = profile?.role === "buyer";
+  const isAdmin    = profile?.role === "admin";
+  const isFarmer   = profile?.role === "farmer";
+  const isBuyer    = profile?.role === "buyer";
   const isVerified = profile?.verified === true;
 
   return (
-    <AuthCtx.Provider value={{ user, profile, loading, isAdmin, isFarmer, isBuyer, isVerified, reloadProfile: () => user && loadProfile(user.id) }}>
+    <AuthCtx.Provider value={{
+      user,
+      profile,
+      loading,
+      isAdmin,
+      isFarmer,
+      isBuyer,
+      isVerified,
+      reloadProfile: () => user && loadProfile(user.id),
+    }}>
       {children}
     </AuthCtx.Provider>
   );

@@ -1,58 +1,98 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase, getListings, createEnquiry } from "../services/supabase";
 import PriceCalculator from "../components/PriceCalculator";
 import KrishiAI from "../components/KrishiAI";
 
-const CROPS = ["Garlic","Onion","Potato","Turmeric","Ginger","Chilli"];
+const CROPS = ["All","Garlic","Onion","Potato","Turmeric","Ginger","Chilli"];
 const CROP_EMOJI = { Garlic:"🧄", Onion:"🧅", Potato:"🥔", Turmeric:"🌿", Ginger:"🫚", Chilli:"🌶️" };
-
 const SIDENAV = [
-  { id:"dashboard",  icon:"📊", label:"Dashboard" },
-  { id:"marketplace",icon:"🛒", label:"Browse Produce" },
-  { id:"myenquiries",icon:"📬", label:"My Enquiries" },
-  { id:"calculator", icon:"🧮", label:"Price Calculator" },
-  { id:"profile",    icon:"👤", label:"My Profile" },
-];
-
-const MOCK_LISTINGS = [
-  { id:"1", farmer_name:"Ramesh Patel",   commodity:"Garlic",   quantity_kg:5000,  price_inr_kg:55, state:"Madhya Pradesh", district:"Mandsor",   description:"Fresh white garlic, export grade", is_available:true, is_ceta_eligible:true, profiles:{ name:"Ramesh Patel", verified:true } },
-  { id:"2", farmer_name:"Suresh Yadav",   commodity:"Onion",    quantity_kg:8000,  price_inr_kg:22, state:"Maharashtra",    district:"Nashik",    description:"Red onion, 5-7cm, cleaned", is_available:true, is_ceta_eligible:true, profiles:{ name:"Suresh Yadav", verified:true } },
-  { id:"3", farmer_name:"Kavita Sharma",  commodity:"Turmeric", quantity_kg:2000,  price_inr_kg:98, state:"Telangana",      district:"Nizamabad", description:"7% curcumin, machine cleaned", is_available:true, is_ceta_eligible:true, profiles:{ name:"Kavita Sharma", verified:false } },
-  { id:"4", farmer_name:"Murugan Pillai", commodity:"Ginger",   quantity_kg:3000,  price_inr_kg:42, state:"Kerala",         district:"Wayanad",   description:"Baby ginger, export quality", is_available:true, is_ceta_eligible:true, profiles:{ name:"Murugan Pillai", verified:true } },
-  { id:"5", farmer_name:"Anjali Reddy",   commodity:"Chilli",   quantity_kg:1500,  price_inr_kg:76, state:"Andhra Pradesh", district:"Guntur",    description:"Guntur Sannam S4, 12-15% moisture", is_available:true, is_ceta_eligible:true, profiles:{ name:"Anjali Reddy", verified:true } },
-  { id:"6", farmer_name:"Vikram Singh",   commodity:"Potato",   quantity_kg:10000, price_inr_kg:14, state:"Uttar Pradesh",  district:"Agra",      description:"Chipsona variety, 40-60mm", is_available:true, is_ceta_eligible:true, profiles:{ name:"Vikram Singh", verified:false } },
+  { id:"dashboard",   icon:"📊", label:"Dashboard" },
+  { id:"marketplace", icon:"🛒", label:"Browse Produce" },
+  { id:"enquiries",   icon:"📬", label:"My Enquiries" },
+  { id:"calculator",  icon:"🧮", label:"Price Calculator" },
+  { id:"profile",     icon:"👤", label:"My Profile" },
 ];
 
 export default function BuyerPanel() {
   const { user, profile, reloadProfile } = useAuth();
-  const [page, setPage]         = useState("dashboard");
-  const [listings, setListings] = useState([]);
-  const [myEnquiries, setMyEnquiries] = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [page, setPage]           = useState("dashboard");
+  const [listings, setListings]   = useState([]);
+  const [myEnquiries, setMyEnqs]  = useState([]);
+  const [loading, setLoading]     = useState(true);
   const [collapsed, setCollapsed] = useState(false);
+  const [modal, setModal]         = useState(null);
+  const [filter, setFilter]       = useState("All");
+  const [enqForm, setEnqForm]     = useState({ buyer_name:"", buyer_email:"", buyer_company:"", quantity_kg:"", message:"" });
+  const [enqStatus, setEnqStatus] = useState(null);
+  const [enqError, setEnqError]   = useState(null);
 
-  useEffect(() => { load(); }, [user]);
-
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getListings();
-      setListings(data?.length ? data : MOCK_LISTINGS);
+      setListings(data || []);
       if (user) {
-        const { data: enqs } = await supabase.from("enquiries").select("*, listings(commodity,quantity_kg)").eq("buyer_id", user.id).order("created_at",{ascending:false});
-        setMyEnquiries(enqs || []);
+        const { data: enqs, error } = await supabase.from("enquiries")
+          .select("*, listings(commodity,quantity_kg,farmer_name,state)")
+          .eq("buyer_id", user.id)
+          .order("created_at", { ascending:false });
+        if (error) console.error("Enquiries load error:", error.message);
+        setMyEnqs(enqs || []);
       }
-    } catch { setListings(MOCK_LISTINGS); }
+    } catch(err) { console.error("Load error:", err); }
     finally { setLoading(false); }
+  }, [user]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openModal = (l) => {
+    setModal(l);
+    setEnqStatus(null);
+    setEnqError(null);
+    // Pre-fill with real profile data — never use hardcoded test data
+    setEnqForm({
+      buyer_name:    profile?.name    || "",
+      buyer_email:   user?.email      || "",
+      buyer_company: profile?.company || "",
+      quantity_kg:   "",
+      message:       "",
+    });
   };
+
+  const sendEnquiry = async (e) => {
+    e.preventDefault();
+    setEnqStatus("loading");
+    setEnqError(null);
+    try {
+      await createEnquiry({
+        listing_id:    modal.id,
+        buyer_id:      user?.id || null,
+        buyer_name:    enqForm.buyer_name,
+        buyer_email:   enqForm.buyer_email,
+        buyer_company: enqForm.buyer_company || null,
+        quantity_kg:   enqForm.quantity_kg ? Number(enqForm.quantity_kg) : null,
+        message:       enqForm.message || null,
+      });
+      setEnqStatus("success");
+      load();
+    } catch(err) {
+      console.error("Enquiry error:", err);
+      setEnqStatus("error");
+      // Show actual error message so it's debuggable
+      setEnqError(err?.message || "Unknown error. Please try again.");
+    }
+  };
+
+  const closeModal = () => { setModal(null); setEnqStatus(null); setEnqError(null); };
+
+  const filtered = filter === "All" ? listings : listings.filter(l => l.commodity === filter);
 
   return (
     <div className="flex min-h-screen" style={{ fontFamily:"'DM Sans',sans-serif" }}>
-      {/* ── Buyer Sidebar ─────────────────────────────────────────────────── */}
+      {/* Sidebar */}
       <aside className={`${collapsed?"w-[68px]":"w-[240px]"} flex-shrink-0 transition-all duration-200 flex flex-col buyer-sidebar`}
         style={{ minHeight:"100vh", position:"sticky", top:0, height:"100vh", overflowY:"auto" }}>
-
         <div className="flex items-center gap-2.5 px-4 py-5 border-b border-white/10">
           <div className="w-9 h-9 rounded-xl bg-blue-400/20 flex items-center justify-center text-lg flex-shrink-0">🇬🇧</div>
           {!collapsed && (
@@ -61,11 +101,10 @@ export default function BuyerPanel() {
               <div className="text-blue-300 text-xs">UK Buyer Portal</div>
             </div>
           )}
-          <button onClick={() => setCollapsed(v=>!v)} className="ml-auto text-white/40 hover:text-white/80 flex-shrink-0 text-lg">
-            {collapsed ? "→" : "←"}
+          <button onClick={() => setCollapsed(v=>!v)} className="ml-auto text-white/40 hover:text-white/80 text-lg flex-shrink-0">
+            {collapsed?"→":"←"}
           </button>
         </div>
-
         {!collapsed && (
           <div className="mx-3 mt-4 p-3 rounded-xl" style={{ background:"rgba(255,255,255,.06)" }}>
             <div className="flex items-center gap-2.5">
@@ -73,248 +112,249 @@ export default function BuyerPanel() {
                 {(profile?.name||"B")[0].toUpperCase()}
               </div>
               <div className="min-w-0">
-                <div className="text-white font-semibold text-sm truncate">{profile?.name || "Buyer"}</div>
-                <div className="text-blue-300 text-xs truncate">{profile?.company || "UK Importer"}</div>
+                <div className="text-white font-semibold text-sm truncate">{profile?.name||"UK Buyer"}</div>
+                <div className="text-blue-300 text-xs truncate">{profile?.company||"Importer"}</div>
               </div>
             </div>
           </div>
         )}
-
         <nav className="flex-1 px-2 py-4 space-y-0.5">
           {SIDENAV.map(item => (
             <button key={item.id} onClick={() => setPage(item.id)}
               className={`buyer-nav-item nav-item w-full ${page===item.id?"active":""}`}>
               <span className="text-lg flex-shrink-0">{item.icon}</span>
               {!collapsed && <span>{item.label}</span>}
+              {!collapsed && item.id==="enquiries" && myEnquiries.length > 0 && (
+                <span className="ml-auto text-xs px-1.5 py-0.5 rounded-full bg-blue-500 text-white font-bold">{myEnquiries.length}</span>
+              )}
             </button>
           ))}
         </nav>
-
         <div className="p-3 border-t border-white/10">
-          <button onClick={() => supabase.auth.signOut()} className={`nav-item w-full ${collapsed?"justify-center":""}`} style={{ color:"#f87171" }}>
+          <button onClick={() => supabase.auth.signOut()}
+            className={`buyer-nav-item nav-item w-full ${collapsed?"justify-center":""}`} style={{ color:"#f87171" }}>
             <span className="text-lg flex-shrink-0">🚪</span>
             {!collapsed && <span>Sign Out</span>}
           </button>
         </div>
       </aside>
 
-      {/* ── Main ───────────────────────────────────────────────────────────── */}
+      {/* Main */}
       <main className="flex-1 overflow-auto" style={{ background:"#f0f2f5" }}>
         <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-20">
           <div>
-            <h1 className="font-bold text-gray-800 text-lg">
-              {SIDENAV.find(n=>n.id===page)?.icon} {SIDENAV.find(n=>n.id===page)?.label}
-            </h1>
-            <p className="text-gray-400 text-xs mt-0.5">Welcome, {profile?.name || "Buyer"} 👋</p>
+            <h1 className="font-bold text-gray-800 text-lg">{SIDENAV.find(n=>n.id===page)?.icon} {SIDENAV.find(n=>n.id===page)?.label}</h1>
+            <p className="text-gray-400 text-xs mt-0.5">KrishiConnect UK Buyer Portal · {new Date().toLocaleDateString("en-GB",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</p>
           </div>
-          <button onClick={load} className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50">↻ Refresh</button>
+          <button onClick={load} className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 font-medium">↻ Refresh</button>
         </div>
 
         <div className="p-6">
-          {loading && page !== "calculator" ? (
-            <div className="text-center py-20 text-gray-400">Loading...</div>
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <div style={{ width:32,height:32,border:"3px solid #e2e8f0",borderTopColor:"#2563eb",borderRadius:"50%",animation:"spin .8s linear infinite" }}/>
+            </div>
           ) : (
             <>
-              {page === "dashboard"   && <BuyerDashHome listings={listings} myEnquiries={myEnquiries} setPage={setPage} />}
-              {page === "marketplace" && <BuyerMarketplace listings={listings} user={user} profile={profile} onRefresh={load} />}
-              {page === "myenquiries" && <BuyerEnquiries enquiries={myEnquiries} />}
-              {page === "calculator"  && <PriceCalculator />}
-              {page === "profile"     && <BuyerProfile profile={profile} user={user} reloadProfile={reloadProfile} />}
+              {page==="dashboard"   && <BuyerHome listings={listings} myEnquiries={myEnquiries} setPage={setPage} />}
+              {page==="marketplace" && (
+                <MarketplacePage listings={listings} filter={filter} setFilter={setFilter}
+                  filtered={filtered} onContact={openModal} />
+              )}
+              {page==="enquiries"   && <MyEnquiriesPage enquiries={myEnquiries} />}
+              {page==="calculator"  && <PriceCalculator />}
+              {page==="profile"     && <BuyerProfile profile={profile} user={user} reloadProfile={reloadProfile} />}
             </>
           )}
         </div>
       </main>
+
+      {/* Enquiry Modal */}
+      {modal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background:"rgba(0,0,0,.5)", backdropFilter:"blur(4px)" }}
+          onClick={e => { if(e.target===e.currentTarget) closeModal(); }}>
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden anim-pop">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between"
+              style={{ background:"linear-gradient(135deg,#0c2340,#1a3a5c)" }}>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{CROP_EMOJI[modal.commodity]||"🌿"}</span>
+                <div>
+                  <h3 className="font-bold text-white">{modal.commodity} · {(modal.quantity_kg/1000).toFixed(1)} MT</h3>
+                  <p className="text-blue-300 text-xs">{modal.farmer_name} · {modal.district||modal.state}</p>
+                </div>
+              </div>
+              <button onClick={closeModal} className="text-white/50 hover:text-white text-xl">✕</button>
+            </div>
+            {enqStatus==="success" ? (
+              <div className="p-10 text-center anim-fade">
+                <div className="text-5xl mb-4">✅</div>
+                <h3 className="font-bold text-gray-800 text-lg mb-2">Enquiry Sent!</h3>
+                <p className="text-gray-500 text-sm">The farmer will contact you at <strong>{enqForm.buyer_email}</strong></p>
+                <button onClick={closeModal} className="btn-primary mt-6 px-8">Done</button>
+              </div>
+            ) : (
+              <form onSubmit={sendEnquiry} className="p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Your Name *</label>
+                    <input className="inp" required value={enqForm.buyer_name}
+                      onChange={e=>setEnqForm(f=>({...f,buyer_name:e.target.value}))} placeholder="John Smith"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Company</label>
+                    <input className="inp" value={enqForm.buyer_company}
+                      onChange={e=>setEnqForm(f=>({...f,buyer_company:e.target.value}))} placeholder="Smith Imports Ltd"/>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Email *</label>
+                  <input className="inp" type="email" required value={enqForm.buyer_email}
+                    onChange={e=>setEnqForm(f=>({...f,buyer_email:e.target.value}))} placeholder="john@company.co.uk"/>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Quantity Needed (kg)</label>
+                  <input className="inp" type="number" min="100" value={enqForm.quantity_kg}
+                    onChange={e=>setEnqForm(f=>({...f,quantity_kg:e.target.value}))}
+                    placeholder={`Up to ${Number(modal.quantity_kg).toLocaleString("en-IN")} kg available`}/>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Message</label>
+                  <textarea className="inp" rows={3} value={enqForm.message}
+                    onChange={e=>setEnqForm(f=>({...f,message:e.target.value}))}
+                    placeholder="e.g. Looking for regular monthly supply. Please share latest phytosanitary certificate and earliest loading date..."/>
+                </div>
+                <div className="p-3 rounded-xl text-xs flex gap-2" style={{ background:"#eff6ff", border:"1px solid #bfdbfe" }}>
+                  <span>✅</span>
+                  <span className="text-blue-800"><strong>CETA 2025:</strong> 0% UK import duty on this produce. You save ~12% vs non-India suppliers.</span>
+                </div>
+                {enqStatus==="error" && (
+                  <div className="p-3 rounded-xl text-xs" style={{ background:"#fef2f2", border:"1px solid #fecaca" }}>
+                    <p className="text-red-700 font-semibold">❌ Failed to send enquiry</p>
+                    <p className="text-red-600 mt-0.5">{enqError}</p>
+                  </div>
+                )}
+                <button type="submit" disabled={enqStatus==="loading"}
+                  className="w-full py-3 rounded-xl font-bold text-white text-sm flex items-center justify-center gap-2"
+                  style={{ background:"linear-gradient(135deg,#2563eb,#1d4ed8)" }}>
+                  {enqStatus==="loading"
+                    ? <><span style={{ width:16,height:16,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"white",borderRadius:"50%",animation:"spin .8s linear infinite",display:"inline-block" }}/> Sending...</>
+                    : "📬 Send Enquiry to Farmer"}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
       <KrishiAI />
     </div>
   );
 }
 
-function BuyerDashHome({ listings, myEnquiries, setPage }) {
+function BuyerHome({ listings, myEnquiries, setPage }) {
   return (
-    <div className="anim-fade">
-      {/* CETA hero banner */}
-      <div className="rounded-2xl p-6 mb-6 text-white relative overflow-hidden" style={{ background:"linear-gradient(135deg,#0c2340,#1a3a5c)" }}>
-        <div className="absolute right-6 top-4 text-6xl opacity-20">🇬🇧</div>
-        <div className="text-xs font-bold text-blue-300 mb-2">INDIA-UK CETA 2025 ACTIVE</div>
-        <h2 className="text-2xl font-bold mb-2" style={{ fontFamily:"'DM Serif Display',serif" }}>Source Indian produce at zero import duty</h2>
-        <p className="text-blue-200 text-sm max-w-lg">CETA eliminates UK import duty on 99% of Indian agri products. Buy directly from verified Indian farmers — no broker margins, full price transparency.</p>
-        <button onClick={() => setPage("marketplace")} className="mt-4 px-5 py-2.5 rounded-xl font-bold text-sm" style={{ background:"#38bdf8", color:"#0c2340" }}>
-          Browse Available Produce →
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div className="space-y-6 anim-fade">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label:"Products Available", value:listings.length,      icon:"🌾", color:"#2d7a3a", bg:"#e8f5ea" },
-          { label:"My Enquiries",       value:myEnquiries.length,   icon:"📬", color:"#2563eb", bg:"#dbeafe" },
-          { label:"Pending Replies",    value:myEnquiries.filter(e=>e.status==="pending").length, icon:"⏳", color:"#b07a00", bg:"#fff3e0" },
-          { label:"Import Duty",        value:"0%",                 icon:"✅", color:"#059669", bg:"#d1fae5" },
+          { label:"Available Listings", value:listings.length,    icon:"🌾", color:"#2d7a3a" },
+          { label:"My Enquiries",       value:myEnquiries.length, icon:"📬", color:"#2563eb", action:()=>setPage("enquiries") },
+          { label:"UK Import Duty",     value:"0%",               icon:"✅", color:"#059669" },
+          { label:"Live GBP Rate",      value:"~₹107",            icon:"💱", color:"#d97706" },
         ].map(s => (
-          <div key={s.label} className="stat-card">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl mb-3" style={{ background:s.bg }}>{s.icon}</div>
-            <div className="text-2xl font-bold mb-0.5" style={{ color:s.color }}>{s.value}</div>
-            <div className="text-gray-500 text-xs">{s.label}</div>
+          <div key={s.label} className={`stat-card ${s.action?"cursor-pointer":""}`} onClick={s.action||undefined}>
+            <span className="text-2xl">{s.icon}</span>
+            <div className="font-bold text-2xl text-gray-800 mt-2">{s.value}</div>
+            <div className="text-gray-400 text-xs mt-0.5">{s.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Latest listings */}
-      <div className="card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-gray-800">Latest Available Produce</h3>
-          <button onClick={() => setPage("marketplace")} className="text-xs text-blue-600 font-semibold hover:underline">Browse all →</button>
+      <div className="card p-6" style={{ background:"linear-gradient(135deg,#0c2340,#1a3a5c)" }}>
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h3 className="font-bold text-white text-lg">Find Indian Produce</h3>
+            <p className="text-blue-300 text-sm mt-1">Browse {listings.length} verified listings from across India</p>
+          </div>
+          <button onClick={() => setPage("marketplace")} className="btn-gold">Browse Marketplace →</button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="data-table">
-            <thead><tr><th>Commodity</th><th>Farmer</th><th>Quantity</th><th>Price</th><th>State</th><th>CETA</th></tr></thead>
-            <tbody>
-              {listings.slice(0,6).map(l => (
-                <tr key={l.id}>
-                  <td className="font-semibold">{CROP_EMOJI[l.commodity]} {l.commodity}</td>
-                  <td>{l.profiles?.name||l.farmer_name} {l.profiles?.verified&&<span className="text-green-500">✓</span>}</td>
-                  <td>{l.quantity_kg?.toLocaleString("en-IN")} kg</td>
-                  <td>{l.price_inr_kg?`₹${l.price_inr_kg}/kg`:"Negotiable"}</td>
-                  <td className="text-gray-500 text-xs">{l.state}</td>
-                  <td><span className="badge bg-green-100 text-green-700">0% duty</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      </div>
+
+      <div className="card p-6">
+        <h3 className="font-bold text-gray-800 mb-4">Why buy from KrishiConnect?</h3>
+        <div className="grid md:grid-cols-3 gap-4">
+          {[
+            { icon:"🏷️", title:"0% UK Import Duty", desc:"India-UK CETA 2025 eliminates import duty on 99% of agricultural products. You save 12–15% immediately." },
+            { icon:"🤝", title:"Direct from Farmer", desc:"No broker, no middleman. Contact the farmer directly. Build long-term supply relationships." },
+            { icon:"📊", title:"Full Price Transparency", desc:"See exact landed cost in GBP — mandi price + shipping + packaging + 0% duty. No surprises." },
+          ].map(f => (
+            <div key={f.title} className="p-4 rounded-xl" style={{ background:"#f8fafc" }}>
+              <div className="text-2xl mb-2">{f.icon}</div>
+              <div className="font-semibold text-gray-800 text-sm mb-1">{f.title}</div>
+              <p className="text-gray-400 text-xs leading-relaxed">{f.desc}</p>
+            </div>
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
-function BuyerMarketplace({ listings, user, profile, onRefresh }) {
-  const [filter, setFilter]   = useState("All");
-  const [modal, setModal]     = useState(null);
-  const [form, setForm]       = useState({ buyer_name:"", buyer_email:"", buyer_company:"", quantity_kg:"", message:"" });
-  const [status, setStatus]   = useState(null);
-
-  useEffect(() => {
-    if (modal && user) setForm(f => ({ ...f, buyer_name:f.buyer_name||profile?.name||"", buyer_email:f.buyer_email||user.email||"", buyer_company:f.buyer_company||profile?.company||"" }));
-  }, [modal]);
-
-  const sendEnquiry = async (e) => {
-    e.preventDefault(); setStatus("loading");
-    try {
-      await createEnquiry({ ...form, listing_id:modal.id, buyer_id:user?.id||null, quantity_kg:Number(form.quantity_kg)||null });
-      setStatus("success");
-      setTimeout(() => { setModal(null); setStatus(null); setForm({ buyer_name:"", buyer_email:"", buyer_company:"", quantity_kg:"", message:"" }); }, 2500);
-    } catch { setStatus("error"); }
-  };
-
-  const filtered = filter === "All" ? listings : listings.filter(l => l.commodity === filter);
-
+function MarketplacePage({ listings, filter, setFilter, filtered, onContact }) {
   return (
     <div className="anim-fade">
-      {/* Filters */}
-      <div className="flex gap-2 mb-5 flex-wrap">
-        {["All",...CROPS].map(c => (
+      <div className="flex gap-2 mb-6 flex-wrap items-center">
+        {CROPS.map(c => (
           <button key={c} onClick={() => setFilter(c)}
-            className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
-            style={{ background:filter===c?"#0c2340":"white", color:filter===c?"white":"#374151", border:"1.5px solid", borderColor:filter===c?"#0c2340":"#e5e7eb" }}>
-            {c!=="All"&&CROP_EMOJI[c]} {c}
+            className="px-4 py-2 rounded-xl text-sm font-semibold transition-all"
+            style={{ background:filter===c?"#2563eb":"#fff", color:filter===c?"#fff":"#6b7280", border:"1.5px solid", borderColor:filter===c?"#2563eb":"#e2e8f0" }}>
+            {c!=="All" && CROP_EMOJI[c]} {c}
           </button>
         ))}
+        <span className="ml-auto text-xs text-gray-400">{filtered.length} listing{filtered.length!==1?"s":""}</span>
       </div>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map(l => (
-          <div key={l.id} className="card card-hover overflow-hidden">
-            <div className="px-5 pt-5 pb-3" style={{ background:"linear-gradient(135deg,#f0f6ff,#e8f0fe)" }}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-3xl mb-1">{CROP_EMOJI[l.commodity]||"🌾"}</div>
-                  <div className="font-bold text-gray-800">{l.commodity}</div>
-                  <div className="text-xs text-gray-500">{l.state}{l.district?`, ${l.district}`:""}</div>
-                </div>
-                <div className="text-right">
-                  {l.price_inr_kg ? <div className="font-bold text-green-800 text-lg">₹{l.price_inr_kg}<span className="text-xs font-normal">/kg</span></div> : <div className="text-xs text-gray-500">Negotiable</div>}
-                  <span className="badge bg-green-100 text-green-700 text-xs mt-1">0% duty</span>
-                </div>
-              </div>
-            </div>
-            <div className="px-5 py-4">
-              <div className="flex gap-4 text-sm mb-3">
-                <div><span className="text-gray-400 text-xs">Available</span><div className="font-semibold">{l.quantity_kg?.toLocaleString("en-IN")} kg</div></div>
-                <div><span className="text-gray-400 text-xs">Farmer</span><div className="font-medium text-sm">{l.profiles?.name||l.farmer_name} {l.profiles?.verified&&<span className="text-green-500 text-xs">✓</span>}</div></div>
-              </div>
-              {l.description && <p className="text-xs text-gray-500 mb-3 line-clamp-2">{l.description}</p>}
-              <button onClick={() => setModal(l)}
-                className="w-full py-2.5 rounded-xl text-sm font-bold text-white transition-all hover:opacity-90"
-                style={{ background:"linear-gradient(135deg,#0c2340,#1a3a5c)" }}>
-                Contact Farmer →
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Enquiry Modal */}
-      {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background:"rgba(0,0,0,.5)" }}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md anim-pop">
-            <div className="px-6 py-4 border-b flex items-center justify-between" style={{ background:"linear-gradient(135deg,#0c2340,#1a3a5c)" }}>
-              <div>
-                <div className="text-white font-bold">Send Enquiry</div>
-                <div className="text-blue-200 text-xs">{CROP_EMOJI[modal.commodity]} {modal.commodity} · {modal.quantity_kg?.toLocaleString("en-IN")}kg · {modal.state}</div>
-              </div>
-              <button onClick={() => setModal(null)} className="text-white/70 hover:text-white text-xl">✕</button>
-            </div>
-            <div className="p-6">
-              {status === "success" ? (
-                <div className="text-center py-8">
-                  <div className="text-5xl mb-4">📬</div>
-                  <p className="font-bold text-gray-800 text-lg">Enquiry Sent!</p>
-                  <p className="text-sm text-gray-500 mt-2">The farmer will contact you shortly at {form.buyer_email}.</p>
-                </div>
-              ) : (
-                <form onSubmit={sendEnquiry} className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Your Name *</label><input required value={form.buyer_name} onChange={e=>setForm(f=>({...f,buyer_name:e.target.value}))} className="inp" placeholder="John Smith"/></div>
-                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Email *</label><input required type="email" value={form.buyer_email} onChange={e=>setForm(f=>({...f,buyer_email:e.target.value}))} className="inp" placeholder="you@company.co.uk"/></div>
-                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Company</label><input value={form.buyer_company} onChange={e=>setForm(f=>({...f,buyer_company:e.target.value}))} className="inp" placeholder="UK Imports Ltd"/></div>
-                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Quantity (kg)</label><input type="number" value={form.quantity_kg} onChange={e=>setForm(f=>({...f,quantity_kg:e.target.value}))} className="inp" placeholder="e.g. 2000"/></div>
-                  </div>
-                  <div><label className="block text-xs font-semibold text-gray-600 mb-1">Message</label><textarea rows={3} value={form.message} onChange={e=>setForm(f=>({...f,message:e.target.value}))} className="inp resize-none" placeholder="Hi, I'm interested. Can we discuss pricing and delivery?"/></div>
-                  {status==="error" && <p className="text-red-500 text-xs">Failed to send. Please try again.</p>}
-                  <div className="flex gap-3 pt-1">
-                    <button type="submit" className="btn-primary flex-1" disabled={status==="loading"}>{status==="loading"?"Sending...":"Send Enquiry →"}</button>
-                    <button type="button" className="btn-outline" onClick={()=>setModal(null)}>Cancel</button>
-                  </div>
-                </form>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function BuyerEnquiries({ enquiries }) {
-  return (
-    <div className="anim-fade">
-      {enquiries.length === 0 ? (
-        <div className="card text-center py-16 text-gray-400">
-          <div className="text-4xl mb-3">📬</div>
-          <p className="font-medium">No enquiries sent yet</p>
-          <p className="text-sm mt-1">Browse the marketplace and contact farmers to get started.</p>
+      {filtered.length === 0 ? (
+        <div className="text-center py-16 card p-12">
+          <div className="text-4xl mb-3">🌾</div>
+          <p className="text-gray-500">No listings in this category yet.</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {enquiries.map(e => (
-            <div key={e.id} className="card p-5 flex items-start justify-between flex-wrap gap-3">
-              <div>
-                <div className="font-semibold text-gray-800">{CROP_EMOJI[e.listings?.commodity]} {e.listings?.commodity}</div>
-                <div className="text-sm text-gray-500 mt-0.5">{e.quantity_kg?`${e.quantity_kg.toLocaleString("en-IN")}kg requested`:""}</div>
-                <div className="text-xs text-gray-400 mt-1">{new Date(e.created_at).toLocaleDateString("en-IN")}</div>
-                {e.message && <p className="text-xs text-gray-500 mt-2 italic">"{e.message}"</p>}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map(l => (
+            <div key={l.id} className="listing-card">
+              <div className="p-4 pb-3" style={{ background:"#f0f7ff" }}>
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{CROP_EMOJI[l.commodity]||"🌿"}</span>
+                    <div>
+                      <h3 className="font-bold text-gray-800 text-sm">{l.commodity}</h3>
+                      <p className="text-xs text-blue-600">{l.grade || "Standard"}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    {l.price_inr_kg ? <div className="font-bold text-green-700">₹{l.price_inr_kg}/kg</div> : <div className="text-xs text-gray-400 font-medium">Best Offer</div>}
+                    <div className="text-xs text-gray-400">{(l.quantity_kg/1000).toFixed(1)} MT</div>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                {(() => { const m={pending:["#fff3e0","#b07a00","⏳ Pending"],contacted:["#e0f2fe","#0369a1","📞 Contacted"],closed:["#f0fdf4","#166534","✅ Done"]};const[bg,c,label]=m[e.status]||m.pending; return <span className="badge" style={{background:bg,color:c}}>{label}</span>; })()}
+              <div className="p-4 pt-3 space-y-2">
+                <div className="text-xs text-gray-500 flex items-center gap-1">📍 {l.district ? `${l.district}, ` : ""}{l.state}</div>
+                {l.description && <p className="text-xs text-gray-400 line-clamp-2">{l.description}</p>}
+                <div className="flex items-center justify-between pt-1">
+                  <div className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center text-green-700 text-xs font-bold">
+                      {(l.farmer_name||"F")[0]}
+                    </div>
+                    {l.farmer_name}
+                    {l.profiles?.verified && <span className="text-green-600 text-xs">✓</span>}
+                  </div>
+                  <span className="badge bg-green-50 text-green-700 text-xs">CETA 0%</span>
+                </div>
+                <button onClick={() => onContact(l)} className="w-full py-2.5 rounded-xl text-sm font-semibold text-white mt-1"
+                  style={{ background:"linear-gradient(135deg,#2563eb,#1d4ed8)" }}>
+                  Contact Farmer →
+                </button>
               </div>
             </div>
           ))}
@@ -324,39 +364,103 @@ function BuyerEnquiries({ enquiries }) {
   );
 }
 
+function MyEnquiriesPage({ enquiries }) {
+  if (enquiries.length === 0) return (
+    <div className="card p-12 text-center anim-fade">
+      <div className="text-5xl mb-4">📬</div>
+      <h3 className="font-bold text-gray-800 mb-2">No enquiries yet</h3>
+      <p className="text-gray-400 text-sm">Browse the marketplace and contact farmers to see your enquiries here.</p>
+    </div>
+  );
+  return (
+    <div className="space-y-4 anim-fade">
+      {enquiries.map(e => (
+        <div key={e.id} className="card p-5">
+          <div className="flex items-start justify-between flex-wrap gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">{CROP_EMOJI[e.listings?.commodity]||"🌿"}</span>
+              <div>
+                <p className="font-semibold text-gray-800">{e.listings?.commodity || "Produce"}</p>
+                <p className="text-xs text-gray-400">{e.listings?.farmer_name} · {e.listings?.state}</p>
+              </div>
+            </div>
+            <span className={`badge ${e.status==="pending"?"bg-amber-50 text-amber-700":e.status==="contacted"?"bg-blue-50 text-blue-700":"bg-gray-100 text-gray-500"}`}>{e.status}</span>
+          </div>
+          {e.message && <p className="text-xs text-gray-500 italic p-3 rounded-xl bg-gray-50 mb-3">"{e.message}"</p>}
+          <p className="text-xs text-gray-400">{new Date(e.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function BuyerProfile({ profile, user, reloadProfile }) {
-  const [form, setForm] = useState({ name:profile?.name||"", phone:profile?.phone||"", company:profile?.company||"" });
+  const [form, setForm] = useState({
+    name:    profile?.name    || "",
+    phone:   profile?.phone   || "",
+    company: profile?.company || "",
+  });
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved]   = useState(false);
+  const [toast, setToast]   = useState(null);
+
+  useEffect(() => {
+    setForm({ name: profile?.name||"", phone: profile?.phone||"", company: profile?.company||"" });
+  }, [profile]);
 
   const handleSave = async (e) => {
-    e.preventDefault(); setSaving(true);
+    e.preventDefault();
+    setSaving(true);
     try {
-      await supabase.from("profiles").update(form).eq("id", user.id);
-      await reloadProfile(); setSaved(true); setTimeout(()=>setSaved(false),2500);
-    } catch(err){ console.error(err); } finally{ setSaving(false); }
+      const { error } = await supabase.from("profiles").update({
+        name:    form.name.trim(),
+        phone:   form.phone.trim() || null,
+        company: form.company.trim() || null,
+      }).eq("id", user.id);
+      if (error) throw new Error(error.message);
+      await reloadProfile();
+      setToast({ msg:"✅ Profile updated! Your details will pre-fill in future enquiries.", type:"success" });
+    } catch(err) { setToast({ msg:`❌ ${err.message}`, type:"error" }); }
+    finally { setSaving(false); setTimeout(()=>setToast(null),4000); }
   };
 
   return (
-    <div className="anim-fade max-w-lg">
+    <div className="max-w-lg anim-fade">
       <div className="card p-6">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center text-white text-2xl font-bold">
+        <div className="flex items-center gap-4 mb-6 pb-5 border-b border-gray-100">
+          <div className="w-16 h-16 rounded-2xl bg-blue-500 flex items-center justify-center text-white font-bold text-2xl">
             {(profile?.name||"B")[0].toUpperCase()}
           </div>
           <div>
-            <div className="font-bold text-gray-800 text-lg">{profile?.name||"Buyer"}</div>
-            <div className="text-gray-500 text-sm">{user?.email||profile?.phone}</div>
-            <span className="badge bg-blue-100 text-blue-700 mt-1">🇬🇧 UK Buyer</span>
+            <h2 className="font-bold text-gray-800 text-lg">{profile?.name||"UK Buyer"}</h2>
+            <p className="text-gray-400 text-sm">{user?.email}</p>
+            <span className="badge text-xs mt-1 bg-blue-50 text-blue-700">🇬🇧 UK Buyer</span>
           </div>
         </div>
-        {saved && <div className="mb-4 p-3 rounded-xl bg-green-50 border border-green-200 text-green-700 text-sm">✅ Profile updated!</div>}
+        {toast && (
+          <div className={`mb-4 p-3 rounded-xl text-sm font-medium ${toast.type==="error"?"bg-red-50 border border-red-200 text-red-700":"bg-green-50 border border-green-200 text-green-700"}`}>
+            {toast.msg}
+          </div>
+        )}
         <form onSubmit={handleSave} className="space-y-4">
-          <div><label className="block text-xs font-semibold text-gray-600 mb-1.5">Full Name</label><input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} className="inp"/></div>
-          <div><label className="block text-xs font-semibold text-gray-600 mb-1.5">Phone (UK)</label><input value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} className="inp" placeholder="+44 7700 900000"/></div>
-          <div><label className="block text-xs font-semibold text-gray-600 mb-1.5">Company Name</label><input value={form.company} onChange={e=>setForm(f=>({...f,company:e.target.value}))} className="inp" placeholder="UK Imports Ltd"/></div>
-          <button type="submit" className="btn-primary w-full" disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Full Name *</label>
+            <input className="inp" required value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="John Smith"/>
+            <p className="text-xs text-gray-400 mt-1">Pre-fills your name when you send enquiries to farmers.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Company Name</label>
+            <input className="inp" value={form.company} onChange={e=>setForm(f=>({...f,company:e.target.value}))} placeholder="Smith Imports Ltd"/>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Phone / WhatsApp</label>
+            <input className="inp" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="+44 7700 900000"/>
+          </div>
+          <button type="submit" disabled={saving} className="btn-primary w-full">{saving?"Saving...":"Save Profile"}</button>
         </form>
+        <div className="mt-5 pt-5 border-t border-gray-100">
+          <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Account Email</p>
+          <p className="text-sm text-gray-600">{user?.email}</p>
+        </div>
       </div>
     </div>
   );

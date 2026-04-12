@@ -205,7 +205,7 @@ function AdminOverview({ stats, farmers, buyers, enquiries, listings, setPage })
                 <div className="font-medium text-sm text-gray-800">{f.name||"—"}</div>
                 <div className="text-xs text-gray-500">{f.email} · {f.state||"—"}</div>
               </div>
-              <button onClick={async()=>{ await verifyFarmer(f.id,true); window.location.reload(); }}
+              <button onClick={async()=>{ await verifyFarmer(f.id,true); loadAll(); }}
                 className="text-xs px-3 py-1.5 rounded-lg font-semibold text-white"
                 style={{ background:"#2d7a3a" }}>
                 ✓ Verify
